@@ -1,6 +1,6 @@
 {
   "name": "skillsafe",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "type": "module",
   "description": "SafeSkill CLI — scan AI tool skills for security risks and prompt injection",
   "author": "SafeSkill",
@@ -11,7 +11,7 @@
     "url": "git+https://github.com/OyadotAI/safeskill.git"
   },
   "bin": {
-    "skillsafe": "./dist/bin/safeskill.js"
+    "skillsafe": "dist/bin/safeskill.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,25 +23,37 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/bin/safeskill.ts",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@safeskill/shared": "workspace:*",
-    "@safeskill/scanner": "workspace:*",
+    "ts-morph": "^25.0.0",
+    "globby": "^14.1.0",
+    "fastest-levenshtein": "^1.0.16",
     "commander": "^14.0.0",
     "chalk": "^5.4.0",
-    "ora": "^8.2.0"
+    "ora": "^8.2.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@safeskill/shared": "workspace:*",
+    "@safeskill/scanner": "workspace:*",
     "@types/node": "^25.5.0",
     "typescript": "^5.8.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "tsup": "^8.5.0"
   },
-  "keywords": ["safeskill", "mcp", "security", "scanner", "ai-tools", "prompt-injection"],
+  "keywords": [
+    "safeskill",
+    "mcp",
+    "security",
+    "scanner",
+    "ai-tools",
+    "prompt-injection"
+  ],
   "publishConfig": {
     "access": "public"
   }
