@@ -1,0 +1,35 @@
+{
+  "name": "@safeskill/scanner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./crawlers": {
+      "types": "./dist/crawlers/index.d.ts",
+      "import": "./dist/crawlers/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@safeskill/shared": "workspace:*",
+    "fastest-levenshtein": "^1.0.16",
+    "globby": "^14.1.0",
+    "ts-morph": "^25.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

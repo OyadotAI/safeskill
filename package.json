@@ -1,0 +1,25 @@
+{
+  "name": "safeskill",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SafeSkill — vetted registry for AI tool skills",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "clean": "turbo clean"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  }
+}

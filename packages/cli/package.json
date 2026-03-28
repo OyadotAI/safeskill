@@ -1,0 +1,48 @@
+{
+  "name": "skillsafe",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "SafeSkill CLI — scan AI tool skills for security risks and prompt injection",
+  "author": "SafeSkill",
+  "license": "MIT",
+  "homepage": "https://safeskill.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OyadotAI/safeskill.git"
+  },
+  "bin": {
+    "skillsafe": "./dist/bin/safeskill.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/bin/safeskill.ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@safeskill/shared": "workspace:*",
+    "@safeskill/scanner": "workspace:*",
+    "commander": "^14.0.0",
+    "chalk": "^5.4.0",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": ["safeskill", "mcp", "security", "scanner", "ai-tools", "prompt-injection"],
+  "publishConfig": {
+    "access": "public"
+  }
+}
