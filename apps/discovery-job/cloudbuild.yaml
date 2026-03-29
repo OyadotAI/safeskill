@@ -14,7 +14,7 @@ steps:
     args:
       - 'run'
       - 'jobs'
-      - 'create'
+      - 'update'
       - 'safeskill-discovery'
       - '--image'
       - 'gcr.io/$PROJECT_ID/safeskill-discovery:latest'
