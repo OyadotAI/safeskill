@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://safeskill.dev/sitemap.xml

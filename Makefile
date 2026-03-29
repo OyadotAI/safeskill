@@ -35,6 +35,9 @@ lint: ## Lint all packages
 seed: ## Crawl all marketplaces and build index (10K+ entries)
 	$(PNPM) exec tsx scripts/seed.ts
 
+sitemap: ## Generate sitemap with all 10K+ package URLs
+	$(PNPM) exec tsx scripts/generate-sitemap.ts
+
 seed-quick: ## Quick crawl (500 entries, for testing)
 	$(PNPM) exec tsx scripts/seed.ts --limit 500
 
@@ -45,14 +48,26 @@ seed-smithery: ## Crawl only Smithery
 	$(PNPM) exec tsx scripts/seed.ts --source smithery
 
 # --- Deploy ---
-deploy: build ## Deploy web app to Cloudflare Pages
-	cd apps/web && npx wrangler pages deploy .next --project-name $(CF_PROJECT) --branch $(CF_BRANCH)
+deploy: build ## Deploy static site to Cloudflare Pages
+	cd apps/web && npx next build && cp out/scan.html out/scan/_scan-fallback.html && npx wrangler pages deploy out --project-name $(CF_PROJECT) --branch $(CF_BRANCH) --commit-dirty=true
 
 deploy-prod: build ## Deploy to Cloudflare Pages (production)
-	cd apps/web && npx wrangler pages deploy .next --project-name $(CF_PROJECT) --branch main
+	cd apps/web && npx next build && cp out/scan.html out/scan/_scan-fallback.html && npx wrangler pages deploy out --project-name $(CF_PROJECT) --branch main --commit-dirty=true
 
-cf-init: ## Initialize Cloudflare Pages project
-	cd apps/web && npx wrangler pages project create $(CF_PROJECT) --production-branch main
+deploy-api: ## Deploy API worker to Cloudflare
+	cd apps/api-worker && npx wrangler deploy
+
+deploy-scanner: ## Build and deploy scanner to Cloud Run
+	gcloud builds submit --config apps/scanner-worker/cloudbuild.yaml .
+
+deploy-discovery: ## Build and deploy discovery job to Cloud Run Jobs
+	gcloud builds submit --config apps/discovery-job/cloudbuild.yaml .
+
+run-discovery: ## Run the discovery job now
+	gcloud run jobs execute safeskill-discovery --region us-central1 --wait
+
+migrate-gcs: ## Migrate scan-results.json to GCS + Firestore
+	$(PNPM) exec tsx scripts/migrate-to-gcs.ts
 
 # --- CLI Publish ---
 publish-dry: build ## Dry-run npm publish of the CLI
@@ -67,6 +82,18 @@ scan: ## Scan a package (usage: make scan PKG=chalk)
 
 scan-json: ## Scan with JSON output (usage: make scan-json PKG=chalk)
 	node packages/cli/dist/bin/safeskill.js scan $(PKG) --json
+
+scan-all: build ## Batch-scan default packages and save to data/scan-results.json
+	$(PNPM) exec tsx scripts/scan-packages.ts
+	cp data/scan-results.json apps/web/src/data/scan-results.json
+
+scan-all-resume: build ## Resume batch scan (skip already-scanned)
+	$(PNPM) exec tsx scripts/scan-packages.ts --resume
+	cp data/scan-results.json apps/web/src/data/scan-results.json
+
+scan-top: build ## Scan top N from marketplace index (usage: make scan-top N=100)
+	$(PNPM) exec tsx scripts/scan-packages.ts --from-index $(N)
+	cp data/scan-results.json apps/web/src/data/scan-results.json
 
 # --- All-in-one ---
 setup: install build seed ## Full setup: install, build, crawl 10K+ skills

@@ -47,6 +47,12 @@ export function Header() {
             >
               Browse
             </Link>
+            <Link
+              href="/docs"
+              className="px-3 py-2 text-sm text-gray-400 hover:text-gray-50 rounded-lg hover:bg-gray-800/50 transition-colors"
+            >
+              Docs
+            </Link>
             <a
               href="https://github.com/OyadotAI/safeskill"
               target="_blank"
@@ -92,6 +98,13 @@ export function Header() {
               onClick={() => setMobileMenuOpen(false)}
             >
               Browse
+            </Link>
+            <Link
+              href="/docs"
+              className="px-3 py-2 text-sm text-gray-400 hover:text-gray-50 rounded-lg hover:bg-gray-800/50"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Docs
             </Link>
             <a
               href="https://github.com/OyadotAI/safeskill"

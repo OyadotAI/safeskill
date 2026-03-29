@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { SearchBar } from '@/components/SearchBar';
 
 interface CompactEntry {
@@ -30,15 +30,42 @@ const SOURCES = [
 
 const PAGE_SIZE = 60;
 
-interface Props {
-  entries: CompactEntry[];
+interface ScanBadge {
+  slug: string;
+  score: number;
+  grade: string;
+  label: string;
+  color: string;
 }
 
-export function BrowseClient({ entries }: Props) {
+interface Props {
+  entries: CompactEntry[];
+  scannedMap: Record<string, ScanBadge>;
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+
+export function BrowseClient({ entries, scannedMap: initialScannedMap }: Props) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [source, setSource] = useState('all');
   const [page, setPage] = useState(0);
+  const [liveBadges, setLiveBadges] = useState<Record<string, ScanBadge>>({});
+
+  // Fetch live scan badges from the API (includes newly scanned packages)
+  useEffect(() => {
+    if (!API_BASE) return;
+    fetch(`${API_BASE}/api/scanned`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setLiveBadges(data); })
+      .catch(() => {});
+  }, []);
+
+  // Merge build-time badges with live badges (live takes priority)
+  const scannedMap = useMemo(
+    () => ({ ...initialScannedMap, ...liveBadges }),
+    [initialScannedMap, liveBadges],
+  );
 
   const filtered = useMemo(() => {
     let result = entries;
@@ -146,35 +173,66 @@ export function BrowseClient({ entries }: Props) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {pageEntries.map((entry) => (
-            <a
-              key={entry.n}
-              href={`/scan/${encodeURIComponent(entry.n)}`}
-              className="group rounded-xl border border-gray-800/80 bg-gray-900/30 hover:bg-gray-900/60 hover:border-gray-700/80 p-4 transition-all"
-            >
-              <h3 className="text-sm font-semibold text-gray-200 group-hover:text-emerald-400 transition-colors truncate mb-1">
-                {entry.n}
-              </h3>
-              {entry.d && (
-                <p className="text-xs text-gray-500 line-clamp-2 mb-2 min-h-[2rem]">
-                  {entry.d}
-                </p>
-              )}
-              <div className="flex flex-wrap gap-1">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                  entry.c === 'mcp-server' ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400' :
-                  entry.c === 'claude-skill' ? 'border-purple-500/20 bg-purple-500/5 text-purple-400' :
-                  entry.c === 'openclaw-tool' ? 'border-blue-500/20 bg-blue-500/5 text-blue-400' :
-                  'border-gray-700/50 bg-gray-800/30 text-gray-500'
-                }`}>
-                  {entry.c}
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-700/50 bg-gray-800/30 text-gray-600">
-                  {entry.s.replace('github-topic:', '')}
-                </span>
-              </div>
-            </a>
-          ))}
+          {pageEntries.map((entry) => {
+            const badge = scannedMap[entry.n];
+            return (
+              <a
+                key={entry.n}
+                href={badge ? `/scan/${badge.slug}` : `/scan?pkg=${encodeURIComponent(entry.n)}`}
+                className={`group rounded-xl border bg-gray-900/30 hover:bg-gray-900/60 p-4 transition-all ${
+                  badge ? 'border-gray-700/80 hover:border-emerald-500/30' : 'border-gray-800/80 hover:border-gray-700/80'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="text-sm font-semibold text-gray-200 group-hover:text-emerald-400 transition-colors truncate">
+                    {entry.n}
+                  </h3>
+                  {badge && (
+                    <span
+                      className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded"
+                      style={{
+                        color: badge.color,
+                        backgroundColor: `${badge.color}15`,
+                        border: `1px solid ${badge.color}33`,
+                      }}
+                    >
+                      {badge.score}
+                    </span>
+                  )}
+                </div>
+                {entry.d && (
+                  <p className="text-xs text-gray-500 line-clamp-2 mb-2 min-h-[2rem]">
+                    {entry.d}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    entry.c === 'mcp-server' ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400' :
+                    entry.c === 'claude-skill' ? 'border-purple-500/20 bg-purple-500/5 text-purple-400' :
+                    entry.c === 'openclaw-tool' ? 'border-blue-500/20 bg-blue-500/5 text-blue-400' :
+                    'border-gray-700/50 bg-gray-800/30 text-gray-500'
+                  }`}>
+                    {entry.c}
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-700/50 bg-gray-800/30 text-gray-600">
+                    {entry.s.replace('github-topic:', '')}
+                  </span>
+                  {badge && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded border"
+                      style={{
+                        color: badge.color,
+                        borderColor: `${badge.color}33`,
+                        backgroundColor: `${badge.color}11`,
+                      }}
+                    >
+                      {badge.label}
+                    </span>
+                  )}
+                </div>
+              </a>
+            );
+          })}
         </div>
       )}
 

@@ -1,0 +1,12 @@
+name = "safeskill-api"
+main = "src/index.ts"
+compatibility_date = "2025-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+GCS_BUCKET = "your-gcs-bucket"
+GCP_PROJECT = "your-gcp-project-id"
+SCANNER_URL = "https://your-scanner-service.run.app"
+CLOUD_TASKS_QUEUE = "projects/your-project/locations/us-central1/queues/safeskill-scans"
+
+# Set via: wrangler secret put GCP_SERVICE_ACCOUNT_KEY < path/to/key.json

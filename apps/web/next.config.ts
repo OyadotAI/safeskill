@@ -1,8 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@safeskill/shared', '@safeskill/scanner'],
-  serverExternalPackages: ['ts-morph', 'globby'],
+  output: 'export',
+  transpilePackages: ['@safeskill/shared'],
+  images: { unoptimized: true },
 };
 
 export default nextConfig;

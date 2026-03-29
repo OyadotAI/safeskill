@@ -1,0 +1,36 @@
+{
+  "name": "@safeskill/scan-store",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./gcp": {
+      "types": "./dist/gcp-store.d.ts",
+      "import": "./dist/gcp-store.js"
+    },
+    "./local": {
+      "types": "./dist/local-store.d.ts",
+      "import": "./dist/local-store.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@safeskill/shared": "workspace:*",
+    "@google-cloud/storage": "^7.15.0",
+    "@google-cloud/firestore": "^7.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.0"
+  }
+}

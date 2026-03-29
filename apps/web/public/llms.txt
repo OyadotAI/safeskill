@@ -1,0 +1,40 @@
+# SafeSkill
+
+> Scan AI tool skills for security risks and prompt injection before you install.
+
+SafeSkill is a security scanner for the AI tool ecosystem. It analyzes MCP servers, Claude Code skills, OpenClaw tools, and any npm package for code exploits, prompt injection, data exfiltration, and description mismatches.
+
+## Key Facts
+
+- Indexes 10,121+ AI tool skills from npm, Smithery, GitHub, and curated lists
+- 8 code security detectors (filesystem, network, env theft, process spawn, crypto, obfuscation, install scripts, dynamic require)
+- 8 prompt injection detectors (instruction override, hidden unicode, data exfiltration, tool abuse, persona hijack, CoT manipulation, delimiter escape, indirect injection)
+- Taint tracking: traces data from sensitive sources (SSH keys, API tokens) through transformations to network sinks
+- Code-to-content correlation: detects when documentation claims contradict actual code behavior
+- Scans complete in under 3 seconds
+- CLI tool: `npx skillsafe scan <package>`
+- Free, open source (MIT license)
+
+## Links
+
+- Website: https://safeskill.dev
+- Browse skills: https://safeskill.dev/browse
+- GitHub: https://github.com/OyadotAI/safeskill
+- npm: https://www.npmjs.com/package/skillsafe
+- Blog: https://safeskill.dev/blog/we-scanned-10k-skills
+
+## Usage
+
+```
+npx skillsafe scan @modelcontextprotocol/server-filesystem
+npx skillsafe scan chalk
+npx skillsafe install @org/mcp-server
+npx skillsafe scan some-package --share
+```
+
+## Scoring
+
+- 90-100: Verified Safe
+- 70-89: Passes with Notes
+- 40-69: Use with Caution
+- 0-39: Blocked

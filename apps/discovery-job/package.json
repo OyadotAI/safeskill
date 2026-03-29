@@ -1,0 +1,21 @@
+{
+  "name": "@safeskill/discovery-job",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@safeskill/scanner": "workspace:*",
+    "@safeskill/shared": "workspace:*",
+    "@safeskill/scan-store": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.0"
+  }
+}

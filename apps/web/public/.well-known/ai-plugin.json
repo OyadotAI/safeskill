@@ -1,0 +1,11 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "SafeSkill",
+  "name_for_model": "safeskill",
+  "description_for_human": "Scan AI tool skills for security risks and prompt injection before you install.",
+  "description_for_model": "SafeSkill scans MCP servers, Claude Code skills, and npm packages for code exploits (filesystem access, network calls, env theft, process spawning) and prompt injection (instruction overrides, hidden unicode, data exfiltration, tool abuse). It indexes 10,121+ skills from npm, Smithery, and GitHub. Use `npx skillsafe scan <package>` to scan any package in under 3 seconds.",
+  "url": "https://safeskill.dev",
+  "logo_url": "https://safeskill.dev/logo.svg",
+  "contact_email": "hello@safeskill.dev",
+  "legal_info_url": "https://safeskill.dev"
+}

@@ -11,10 +11,6 @@
   },
   "dependencies": {
     "@safeskill/shared": "workspace:*",
-    "@safeskill/scanner": "workspace:*",
-    "ts-morph": "^25.0.0",
-    "globby": "^14.1.0",
-    "fastest-levenshtein": "^1.0.16",
     "next": "^15.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

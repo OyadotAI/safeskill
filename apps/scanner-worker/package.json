@@ -1,0 +1,25 @@
+{
+  "name": "@safeskill/scanner-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/handler.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "docker:build": "docker build -t safeskill-scanner .",
+    "docker:run": "docker run --rm -p 8080:8080 safeskill-scanner"
+  },
+  "dependencies": {
+    "@safeskill/scanner": "workspace:*",
+    "@safeskill/shared": "workspace:*",
+    "@safeskill/scan-store": "workspace:*",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8.0"
+  }
+}

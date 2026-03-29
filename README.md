@@ -11,7 +11,8 @@
 <p align="center">
   <a href="https://safeskill.dev">Website</a> &bull;
   <a href="https://safeskill.dev/browse">Browse 10K+ Skills</a> &bull;
-  <a href="https://safeskill.dev/blog/we-scanned-10k-skills">Blog Post</a>
+  <a href="https://safeskill.dev/docs">Docs</a> &bull;
+  <a href="https://safeskill.dev/blog/we-scanned-10k-skills">Blog</a>
 </p>
 
 <p align="center">
@@ -79,6 +80,8 @@ One command. No install. Under 3 seconds. Works on any npm package, GitHub repo,
 └──────────────────────────────────────────────────┘
 ```
 
+Or scan any package on the web at [safeskill.dev](https://safeskill.dev) — results include full score breakdowns, findings, permission manifests, and taint flow analysis.
+
 ## What SafeSkill Catches
 
 ### Code Analysis (8 Detectors)
@@ -139,26 +142,15 @@ npx skillsafe scan chalk
 npx skillsafe scan ./my-local-project
 ```
 
-### Safe install (replaces npx)
-
-```bash
-npx skillsafe install @modelcontextprotocol/server-github
-```
-
-Blocks anything scoring below 40. Shows you exactly why.
-
-### Share a report
-
-```bash
-npx skillsafe scan some-package --share
-# Report shared: https://safeskill.dev/report/a1b2c3d4
-```
-
 ### JSON output
 
 ```bash
 npx skillsafe scan axios --json | jq '.overallScore'
 ```
+
+### Web scanner
+
+Visit [safeskill.dev](https://safeskill.dev) and paste any npm package name. Results are cached and include full reports with SEO-friendly URLs at `/scan/<package-slug>`.
 
 ## Scoring
 
@@ -169,11 +161,55 @@ npx skillsafe scan axios --json | jq '.overallScore'
 | 40-69 | Use with Caution | ![](https://img.shields.io/badge/SafeSkill-55%2F100_Caution-orange) |
 | 0-39 | Blocked | ![](https://img.shields.io/badge/SafeSkill-18%2F100_Blocked-red) |
 
-Add a badge to your README:
+**Score breakdown** (weights sum to 100):
 
-```markdown
-[![SafeSkill](https://safeskill.dev/api/badge/YOUR-PACKAGE)](https://safeskill.dev/scan/YOUR-PACKAGE)
+| Factor | Weight | What It Measures |
+|:-------|-------:|:-----------------|
+| Data flow risks | 25 | Sensitive data reaching network sinks |
+| Prompt injection | 20 | Hidden instructions in content files |
+| Dangerous APIs | 15 | Usage of fs, net, exec, eval |
+| Description mismatch | 10 | Claims vs. actual code behavior |
+| Network behavior | 10 | Outbound connections and domains |
+| Dependency health | 8 | Typosquatting, known vulnerabilities |
+| Transparency | 7 | README, types, repository link |
+| Code quality | 5 | Obfuscation, dynamic requires |
+
+## Architecture
+
 ```
+safeskill/
+├── packages/
+│   ├── scanner/          # 3-layer analysis engine
+│   │   ├── analyzers/    # Pattern matcher, AST analyzer, taint tracker
+│   │   ├── detectors/    # 8 code security detectors
+│   │   ├── prompt-audit/ # 8 prompt injection detectors
+│   │   ├── scoring/      # Weighted scoring with diminishing returns
+│   │   └── crawlers/     # npm, Smithery, GitHub marketplace crawlers
+│   ├── cli/              # The `skillsafe` npm command
+│   ├── shared/           # Types, constants, validation schemas
+│   └── scan-store/       # Storage abstraction (GCS + Firestore)
+├── apps/
+│   ├── web/              # Next.js site at safeskill.dev (CF Pages)
+│   ├── api-worker/       # Cloudflare Worker API proxy
+│   └── scanner-worker/   # Cloud Run scanner service (GCP)
+├── data/
+│   └── marketplaces/     # 10K+ indexed skills
+└── scripts/
+    ├── seed.ts           # Marketplace crawler
+    ├── scan-packages.ts  # Batch scanner
+    └── migrate-to-gcs.ts # Data migration
+```
+
+### Infrastructure
+
+| Component | Platform | Purpose |
+|:----------|:---------|:--------|
+| Web frontend | Cloudflare Pages | Static Next.js site with SSG scan pages |
+| API | Cloudflare Worker | Proxies to GCS/Firestore, enqueues scan jobs |
+| Scanner | Google Cloud Run | Containerized scanner (2GB RAM, 180s timeout) |
+| Results storage | Google Cloud Storage | Full scan results as JSON (~50KB each) |
+| Metadata | Google Firestore | Lightweight metadata for queries and browse |
+| Job queue | Google Cloud Tasks | Async scan job orchestration with retry |
 
 ## We Indexed 10,121 Skills
 
@@ -192,32 +228,7 @@ We crawled every major AI tool marketplace:
 
 **Browse them all**: [safeskill.dev/browse](https://safeskill.dev/browse)
 
-## Architecture
-
-```
-safeskill/
-├── packages/
-│   ├── scanner/          # The engine — 3-layer analysis pipeline
-│   │   ├── analyzers/    # Pattern matcher, AST analyzer, taint tracker
-│   │   ├── detectors/    # 8 code security detectors
-│   │   ├── prompt-audit/ # 8 prompt injection detectors
-│   │   ├── scoring/      # Weighted scoring with diminishing returns
-│   │   └── crawlers/     # npm, Smithery, GitHub marketplace crawlers
-│   ├── cli/              # The `safeskill` command
-│   └── shared/           # Types, constants, validation schemas
-├── apps/
-│   └── web/              # Next.js registry at safeskill.dev
-├── data/
-│   └── marketplaces/     # 10K+ indexed skills
-└── scripts/
-    └── seed.ts           # Marketplace crawler script
-```
-
-**Stateless by design.** No database. Redis for caching, R2 for storage, Orama for search. Every API endpoint is a pure function. Scale = add nodes.
-
-**Fast.** Full scan in under 3 seconds. Layer 1 (regex) runs in <100ms. Layer 2 (AST + prompt) runs in parallel. Layer 3 (cross-file correlation) synthesizes.
-
-## Contributing
+## Development
 
 ```bash
 git clone https://github.com/OyadotAI/safeskill
@@ -227,6 +238,34 @@ make dev      # start web app at localhost:3000
 make scan PKG=chalk
 ```
 
+### Useful commands
+
+```bash
+make scan-all           # batch scan default packages
+make scan-all-resume    # resume interrupted batch
+make scan-top N=100     # scan top 100 from marketplace index
+make sitemap            # regenerate sitemap.xml
+make deploy             # deploy web to CF Pages
+make deploy-api         # deploy API worker to CF
+make deploy-scanner     # deploy scanner to Cloud Run
+make migrate-gcs        # migrate scan results to GCS + Firestore
+```
+
+### Environment setup
+
+Copy the example configs and fill in your values:
+
+```bash
+cp apps/api-worker/wrangler.toml.example apps/api-worker/wrangler.toml
+cp apps/web/wrangler.jsonc.example apps/web/wrangler.jsonc
+```
+
 ## License
 
 MIT
+
+---
+
+<p align="center">
+  Built by <a href="https://oya.ai"><strong>Oya.ai</strong></a> — AI Employees Builder
+</p>

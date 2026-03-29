@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { BrowseClient } from './client';
 import { readFile } from 'fs/promises';
 import path from 'path';
+import { getAllCachedScans, packageToSlug } from '@/data/scan-cache';
+import { getGrade, GRADE_LABELS, GRADE_COLORS } from '@safeskill/shared';
 
 export const metadata: Metadata = {
   title: 'Browse 10,000+ Skills — SafeSkill',
@@ -36,7 +38,29 @@ async function loadIndex(): Promise<CompactEntry[]> {
   return [];
 }
 
+export interface ScanBadge {
+  slug: string;
+  score: number;
+  grade: string;
+  label: string;
+  color: string;
+}
+
 export default async function BrowsePage() {
   const entries = await loadIndex();
-  return <BrowseClient entries={entries} />;
+
+  // Build a lookup of scanned packages for badges
+  const scannedMap: Record<string, ScanBadge> = {};
+  for (const r of getAllCachedScans()) {
+    const grade = getGrade(r.overallScore);
+    scannedMap[r.packageName] = {
+      slug: packageToSlug(r.packageName),
+      score: r.overallScore,
+      grade,
+      label: GRADE_LABELS[grade],
+      color: GRADE_COLORS[grade],
+    };
+  }
+
+  return <BrowseClient entries={entries} scannedMap={scannedMap} />;
 }

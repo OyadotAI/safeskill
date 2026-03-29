@@ -1,0 +1,7 @@
+node_modules
+.git
+*.log
+data/marketplaces
+apps/web/.next
+apps/web/out
+apps/web/.vercel

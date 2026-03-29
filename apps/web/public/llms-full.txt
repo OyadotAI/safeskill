@@ -1,0 +1,97 @@
+# SafeSkill — Complete Documentation
+
+## Overview
+
+SafeSkill is a security scanner for AI tool skills and plugins. It addresses a critical gap: developers install MCP servers, Claude Code skills, and other AI tool plugins via `npx` with zero security vetting. These tools get full machine access and can steal files, credentials, and API keys.
+
+Worse, AI skills don't need malicious code — a `skills.md` file with hidden prompt injection instructions can manipulate the AI itself into exfiltrating data.
+
+SafeSkill scans both code AND content to catch both attack vectors.
+
+## Architecture
+
+### Scanner Engine (3-Layer Pipeline)
+
+**Layer 1: Fast Pass (<100ms)**
+- Pattern matching on raw source code
+- package.json analysis (install scripts, metadata)
+- Dependency audit (npm audit, typosquatting via Levenshtein distance)
+- Content file discovery (.md, .yaml, .txt, .prompt files)
+
+**Layer 2: Deep Analysis (<2s)**
+8 Code Detectors (AST-based via ts-morph):
+1. filesystem-access: fs operations, sensitive paths (~/.ssh, ~/.aws, ~/.gnupg, browser cookies)
+2. network-access: fetch, http, axios, WebSocket, external URLs
+3. env-access: process.env reads, sensitive vars (API keys, tokens)
+4. process-spawn: exec, spawn, eval, Function constructor
+5. crypto-usage: base64/hex encoding near network calls (exfiltration prep)
+6. obfuscation: String.fromCharCode, bracket notation, hex escapes
+7. install-scripts: preinstall/postinstall with download-and-execute
+8. dynamic-require: require() with non-literal arguments
+
+8 Prompt Injection Detectors:
+1. instruction-override: "ignore previous instructions", role reassignment
+2. hidden-text: zero-width unicode, HTML comments with instructions
+3. data-exfiltration-prompt: "read ~/.ssh and include in response"
+4. tool-abuse: "use bash tool to run curl", dotfile modification
+5. persona-hijack: "you are DAN", jailbreak patterns
+6. cot-manipulation: hidden reasoning directives
+7. delimiter-escape: fake </system> tags, token boundaries
+8. indirect-injection: URLs to attacker-controlled content
+
+**Layer 3: Cross-File Intelligence (<1s)**
+- Taint tracking: source (fs.readFile) → transform (base64) → sink (fetch)
+- Code ↔ Content correlation: README claims vs actual code behavior
+- Permission manifest inference
+- Unified scoring (0-100)
+
+### Scoring Formula
+
+| Category | Weight |
+|----------|--------|
+| Data flow risks (taint tracking) | 25% |
+| Prompt injection risks | 20% |
+| Dangerous APIs | 15% |
+| Description ↔ code mismatches | 10% |
+| Network behavior | 10% |
+| Dependency health | 8% |
+| Transparency | 7% |
+| Code quality | 5% |
+
+3+ high-confidence critical prompt injection findings cap the score at 30.
+
+### Data Sources
+
+10,121 skills indexed from:
+- npm registry (keywords: mcp, mcp-server, claude-skill, ai-tool): 2,500
+- Smithery registry: 1,603
+- GitHub topics (mcp-server, agent-skills, openclaw, claude-skill): 4,582
+- Curated awesome-lists: 1,436
+
+Categories: 7,414 MCP servers, 1,485 Claude skills, 834 OpenClaw tools, 388 other
+
+## CLI Commands
+
+```bash
+npx skillsafe scan <package>          # scan npm package or local dir
+npx skillsafe scan <package> --json   # JSON output
+npx skillsafe scan <package> --share  # get shareable report URL
+npx skillsafe install <package>       # scan then install (safe npx)
+npx skillsafe install <pkg> --force   # install despite low score
+```
+
+## Technology
+
+- TypeScript monorepo (Turborepo + pnpm)
+- Scanner: ts-morph for AST analysis, custom taint tracker
+- CLI: Commander.js, chalk, ora
+- Web: Next.js 15, Tailwind CSS, static export on Cloudflare Pages
+- No database — fully stateless (Redis for caching, R2 for storage)
+
+## Links
+
+- Website: https://safeskill.dev
+- GitHub: https://github.com/OyadotAI/safeskill
+- npm: https://www.npmjs.com/package/skillsafe
+- Browse: https://safeskill.dev/browse
+- Blog: https://safeskill.dev/blog/we-scanned-10k-skills
