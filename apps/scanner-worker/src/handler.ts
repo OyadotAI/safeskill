@@ -70,12 +70,13 @@ app.post('/scan', async (req, res) => {
 
     console.log(`[${jobId}] Completed: ${result.overallScore}/100`);
 
-    // For GitHub repos, create a PR with the badge
+    // PR creation is opt-in only — pass createPR: true in the request body
     const githubToken = process.env.GITHUB_TOKEN;
     const isGitHubRepo = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(packageName) && !packageName.startsWith('@');
+    const wantsPR = req.body.createPR === true;
     let prUrl: string | null = null;
 
-    if (isGitHubRepo && githubToken) {
+    if (isGitHubRepo && githubToken && wantsPR) {
       try {
         prUrl = await createScanPR(packageName, slug, result, githubToken);
         if (prUrl) console.log(`[${jobId}] PR created: ${prUrl}`);

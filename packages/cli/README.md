@@ -2,11 +2,18 @@
 
 **Your AI tools can read your SSH keys. We check if they do.**
 
+## Install
+
 ```bash
-npx skillsafe scan <any-npm-package>
+# Run without installing (recommended)
+npx skillsafe scan <package>
+
+# Or install globally
+npm i -g skillsafe
+skillsafe scan <package>
 ```
 
-One command. No install. Under 3 seconds. Scans for code exploits AND prompt injection.
+One command. Under 3 seconds. Scans for code exploits AND prompt injection.
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -31,15 +38,34 @@ Worse: a `skills.md` with hidden instructions can make the AI exfiltrate your cr
 
 SafeSkill catches both.
 
-## Commands
+## Usage
 
 ```bash
-safeskill scan chalk                          # scan any npm package
-safeskill scan ./my-project                   # scan local directory
-safeskill install @org/mcp-server             # scan + install (safe npx)
-safeskill scan some-package --share           # get shareable report URL
-safeskill scan some-package --json            # JSON output
+# Scan npm packages
+npx skillsafe scan chalk
+npx skillsafe scan @modelcontextprotocol/server-filesystem
+
+# Scan local directory
+npx skillsafe scan ./my-project
+
+# JSON output (for CI/CD)
+npx skillsafe scan some-package --json
+
+# Skip dependency analysis (faster)
+npx skillsafe scan some-package --skip-deps
 ```
+
+### Exit codes
+
+Exits with code `1` if the package scores below 40 (Blocked). Use in CI:
+
+```bash
+npx skillsafe scan suspicious-pkg || echo "BLOCKED — do not install"
+```
+
+### Web scanner
+
+You can also scan packages on [safeskill.dev](https://safeskill.dev) — full reports with score breakdowns, findings, permissions, and taint flow analysis.
 
 ## What We Detect
 
@@ -60,12 +86,23 @@ safeskill scan some-package --json            # JSON output
 | 40-69 | Use with Caution |
 | 0-39 | Blocked |
 
+Add a badge to your README:
+
+```markdown
+[![SafeSkill](https://img.shields.io/badge/SafeSkill-92%2F100_Verified-brightgreen)](https://safeskill.dev/scan/YOUR-PACKAGE)
+```
+
 ## Links
 
 - **Website**: [safeskill.dev](https://safeskill.dev)
 - **Browse 10K+ skills**: [safeskill.dev/browse](https://safeskill.dev/browse)
+- **Docs**: [safeskill.dev/docs](https://safeskill.dev/docs)
 - **GitHub**: [github.com/OyadotAI/safeskill](https://github.com/OyadotAI/safeskill)
 
 ## License
 
 MIT
+
+---
+
+Built by [Oya.ai](https://oya.ai) — AI Employees Builder

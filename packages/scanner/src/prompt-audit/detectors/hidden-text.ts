@@ -5,13 +5,25 @@ const CATEGORY: PromptDetectorCategory = 'hidden-text';
 
 /**
  * Zero-width and invisible character ranges.
+ * Includes soft hyphens, variation selectors, word joiners, and other invisible chars.
  */
-const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\uFEFF\u2060\u2061\u2062\u2063\u2064]+/g;
+const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\uFEFF\u2060\u2061\u2062\u2063\u2064\u00AD\u034F\u180E\u200E\u200F\u2028\u2029\u205F\u2800]+/g;
 
 /**
  * Bidirectional override characters.
  */
 const BIDI_RE = /[\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069]+/g;
+
+/**
+ * Unicode variation selectors (invisible, can hide intent).
+ */
+const VARIATION_SELECTOR_RE = /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]+/gu;
+
+/**
+ * Homoglyph detection — individual non-ASCII characters that look like Latin letters
+ * mixed into otherwise-ASCII words. Catches Cyrillic а/е/о/с/р mixed into English.
+ */
+const HOMOGLYPH_WORD_RE = /[a-z]*[\u0400-\u04FF\u0370-\u03FF\u0250-\u02AF\u1D00-\u1D7F\u1E00-\u1EFF\uFF00-\uFFEF][a-z]*/gi;
 
 /**
  * HTML comments in markdown.
@@ -46,6 +58,17 @@ const INSTRUCTION_INDICATORS = [
   /pretend/i,
   /you\s+are/i,
   /your\s+new/i,
+  /include/i,
+  /before\s+respond/i,
+  /silently/i,
+  /base64/i,
+  /encode/i,
+  /exfiltrat/i,
+  /~\/.ssh/i,
+  /~\/.aws/i,
+  /credential/i,
+  /api[_\s-]?key/i,
+  /https?:\/\//i,
 ];
 
 function containsInstructions(text: string): boolean {
@@ -93,6 +116,19 @@ const MATCHERS: HiddenMatch[] = [
     regex: BIDI_RE,
     technique: 'bidi-override',
     decodeHidden: (matchText) => decodeZeroWidth(matchText),
+  },
+  {
+    regex: VARIATION_SELECTOR_RE,
+    technique: 'variation-selector',
+    decodeHidden: (matchText) => decodeZeroWidth(matchText),
+  },
+  {
+    regex: HOMOGLYPH_WORD_RE,
+    technique: 'homoglyph',
+    decodeHidden: (matchText) => {
+      const nonAscii = [...matchText].filter(c => c.codePointAt(0)! > 127);
+      return `Word "${matchText}" contains non-ASCII lookalikes: ${nonAscii.map(c => `U+${c.codePointAt(0)!.toString(16).toUpperCase()}`).join(', ')}`;
+    },
   },
   {
     regex: HTML_COMMENT_RE,

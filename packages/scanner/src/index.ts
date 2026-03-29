@@ -81,6 +81,7 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
       hasReadme: manifestResults.hasReadme,
       hasRepository: manifestResults.hasRepository,
       hasTypes: manifestResults.hasTypes,
+      packageType: manifestResults.packageType,
     },
   );
 

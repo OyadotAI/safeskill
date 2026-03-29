@@ -2,6 +2,9 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import type { CodeFinding } from '@safeskill/shared';
 
+/** Detected package type — affects scoring expectations. */
+export type PackageType = 'cli-tool' | 'mcp-server' | 'library' | 'skill' | 'unknown';
+
 export interface ManifestResult {
   findings: CodeFinding[];
   hasInstallScripts: boolean;
@@ -11,6 +14,8 @@ export interface ManifestResult {
   hasTypes: boolean;
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
+  /** Detected package type — CLI tools get different scoring expectations. */
+  packageType: PackageType;
 }
 
 const DANGEROUS_INSTALL_PATTERNS = [
@@ -47,7 +52,7 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
       codeSnippet: '',
       confidence: 1.0,
     });
-    return { findings, hasInstallScripts, hasSkillManifest, hasReadme, hasRepository, hasTypes, dependencies, devDependencies };
+    return { findings, hasInstallScripts, hasSkillManifest, hasReadme, hasRepository, hasTypes, dependencies, devDependencies, packageType: 'unknown' as PackageType };
   }
 
   dependencies = (pkg.dependencies as Record<string, string>) ?? {};
@@ -149,6 +154,9 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
     });
   }
 
+  // Detect package type — affects scoring expectations
+  const packageType = detectPackageType(pkg, dependencies);
+
   return {
     findings,
     hasInstallScripts,
@@ -158,5 +166,36 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
     hasTypes,
     dependencies,
     devDependencies,
+    packageType,
   };
+}
+
+/**
+ * Detect what type of package this is based on metadata, dependencies, and keywords.
+ * CLI tools and dev tools are EXPECTED to use child_process and filesystem —
+ * these capabilities should not penalize their score.
+ */
+function detectPackageType(pkg: Record<string, unknown>, deps: Record<string, string>): PackageType {
+  const name = ((pkg.name as string) ?? '').toLowerCase();
+  const desc = ((pkg.description as string) ?? '').toLowerCase();
+  const keywords = ((pkg.keywords as string[]) ?? []).map(k => k.toLowerCase());
+  const hasBin = !!pkg.bin;
+  const allText = `${name} ${desc} ${keywords.join(' ')}`;
+
+  // CLI tool indicators
+  if (hasBin) return 'cli-tool';
+  if (keywords.some(k => ['cli', 'command-line', 'terminal', 'shell', 'devtool', 'dev-tool'].includes(k))) return 'cli-tool';
+  if (allText.includes('cli') && (allText.includes('tool') || allText.includes('command'))) return 'cli-tool';
+  if (deps['commander'] || deps['yargs'] || deps['meow'] || deps['cac'] || deps['clipanion'] || deps['oclif']) return 'cli-tool';
+
+  // MCP server indicators
+  if (allText.includes('mcp') && allText.includes('server')) return 'mcp-server';
+  if (keywords.some(k => k.includes('mcp'))) return 'mcp-server';
+  if (deps['@modelcontextprotocol/sdk'] || deps['mcp-framework']) return 'mcp-server';
+
+  // Skill indicators
+  if (keywords.some(k => ['claude-skill', 'claude-code', 'openclaw', 'ai-skill'].includes(k))) return 'skill';
+  if (allText.includes('skill') && (allText.includes('claude') || allText.includes('ai'))) return 'skill';
+
+  return 'library';
 }

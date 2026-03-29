@@ -5,13 +5,9 @@ import { DANGEROUS_MODULES, SENSITIVE_PATHS, SENSITIVE_ENV_VARS } from '@safeski
 /**
  * Taint Tracker — tracks data flow from sources to sinks.
  *
- * Sources: fs.readFile, process.env, os.homedir, os.userInfo, child_process output
- * Sinks: fetch, http.request, exec, WebSocket.send, fs.writeFile (to external paths)
- *
- * This is a simplified forward-taint analysis that works at the file level
- * by correlating sources and sinks found in the same file's call expressions.
- * A full interprocedural analysis would require a constraint solver — this is
- * a pragmatic first pass that catches the most common exfiltration patterns.
+ * Layer 1: Intra-file taint (source + sink in same file)
+ * Layer 2: Cross-file taint (exported source consumed by another file's sink)
+ * Layer 3: Env var flows (sensitive env vars → network sinks)
  */
 
 const SOURCE_PATTERNS: Record<string, { type: string; severity: Severity }> = {
@@ -29,6 +25,8 @@ const SOURCE_PATTERNS: Record<string, { type: string; severity: Severity }> = {
   'os.homedir': { type: 'os.homedir', severity: 'medium' },
   userInfo: { type: 'os.userInfo', severity: 'medium' },
   'os.userInfo': { type: 'os.userInfo', severity: 'medium' },
+  // Worker thread sources
+  'Worker': { type: 'worker_threads.Worker', severity: 'high' },
 };
 
 const SINK_PATTERNS: Record<string, { type: string; severity: Severity }> = {
@@ -47,23 +45,24 @@ const SINK_PATTERNS: Record<string, { type: string; severity: Severity }> = {
   spawn: { type: 'child_process.spawn', severity: 'critical' },
   spawnSync: { type: 'child_process.spawnSync', severity: 'critical' },
   'WebSocket.send': { type: 'WebSocket.send', severity: 'high' },
+  // Additional sinks
+  'request': { type: 'request', severity: 'high' },
+  'superagent': { type: 'superagent', severity: 'high' },
+  'undici.fetch': { type: 'undici.fetch', severity: 'high' },
+  'undici.request': { type: 'undici.request', severity: 'high' },
 };
 
 export function trackTaint(fileAnalyses: FileAnalysis[]): TaintFlow[] {
   const flows: TaintFlow[] = [];
 
+  // === Layer 1: Intra-file taint ===
   for (const file of fileAnalyses) {
     const fileSources = findSources(file);
     const fileSinks = findSinks(file);
 
-    // For each source in this file, check if there's a sink
-    // This is a co-occurrence heuristic: source + sink in same file = potential flow
     for (const source of fileSources) {
       for (const sink of fileSinks) {
-        // Skip if source comes after sink (naive ordering by line number)
         if (source.location.line > sink.location.line) continue;
-
-        const severity = combineSeverity(source.severity, sink.severity);
 
         flows.push({
           source: {
@@ -77,22 +76,20 @@ export function trackTaint(fileAnalyses: FileAnalysis[]): TaintFlow[] {
             description: sink.description,
           },
           intermediateSteps: findIntermediateSteps(file, source, sink),
-          severity,
+          severity: combineSeverity(source.severity, sink.severity),
         });
       }
     }
 
-    // Also check env accesses flowing to sinks
+    // Env var flows
     for (const envAccess of file.envAccesses) {
       const isSensitive = envAccess.variable
         ? (SENSITIVE_ENV_VARS as readonly string[]).includes(envAccess.variable)
         : envAccess.isBulk;
-
       if (!isSensitive) continue;
 
       for (const sink of fileSinks) {
         if (envAccess.location.line > sink.location.line) continue;
-
         flows.push({
           source: {
             type: 'process.env',
@@ -109,6 +106,73 @@ export function trackTaint(fileAnalyses: FileAnalysis[]): TaintFlow[] {
           intermediateSteps: [],
           severity: 'critical',
         });
+      }
+    }
+  }
+
+  // === Layer 2: Cross-file taint ===
+  // Build a map of files that have sources (fs/env) and files that have sinks (network)
+  const filesWithSources: Array<{ file: FileAnalysis; sources: SourceInfo[] }> = [];
+  const filesWithSinks: Array<{ file: FileAnalysis; sinks: SourceInfo[] }> = [];
+
+  for (const file of fileAnalyses) {
+    const sources = findSources(file);
+    const sinks = findSinks(file);
+    // Also consider files with sensitive env access as sources
+    const envSources: SourceInfo[] = file.envAccesses
+      .filter(e => e.variable ? (SENSITIVE_ENV_VARS as readonly string[]).includes(e.variable) : e.isBulk)
+      .map(e => ({
+        type: 'process.env',
+        description: e.variable ? `Reads ${e.variable}` : 'Bulk env access',
+        location: e.location,
+        severity: 'high' as Severity,
+      }));
+
+    if (sources.length > 0 || envSources.length > 0) {
+      filesWithSources.push({ file, sources: [...sources, ...envSources] });
+    }
+    if (sinks.length > 0) {
+      filesWithSinks.push({ file, sinks });
+    }
+  }
+
+  // Check if sink-files import from source-files (cross-file exfiltration)
+  for (const sinkFile of filesWithSinks) {
+    for (const imp of sinkFile.file.imports) {
+      // Check if this import points to a file that has sources
+      const importPath = imp.module.replace(/^\.\/|\.ts$|\.js$|\.mjs$/g, '');
+
+      for (const sourceFile of filesWithSources) {
+        if (sinkFile.file.filePath === sourceFile.file.filePath) continue;
+
+        const sourceName = sourceFile.file.filePath.replace(/\.ts$|\.js$|\.mjs$/g, '');
+        const matches = sourceName.endsWith(importPath) ||
+          importPath.endsWith(sourceName.split('/').pop()!.replace(/\.\w+$/, ''));
+
+        if (!matches) continue;
+
+        // Cross-file flow detected
+        for (const source of sourceFile.sources) {
+          for (const sink of sinkFile.sinks) {
+            flows.push({
+              source: {
+                type: source.type,
+                location: { file: sourceFile.file.filePath, line: source.location.line, column: source.location.column },
+                description: `${source.description} (cross-file)`,
+              },
+              sink: {
+                type: sink.type,
+                location: { file: sinkFile.file.filePath, line: sink.location.line, column: sink.location.column },
+                description: `${sink.description} (via import from ${sourceFile.file.filePath})`,
+              },
+              intermediateSteps: [{
+                description: `Data flows across module boundary: ${sourceFile.file.filePath} → ${sinkFile.file.filePath}`,
+                location: { file: sinkFile.file.filePath, line: imp.location.line, column: imp.location.column },
+              }],
+              severity: 'critical',
+            });
+          }
+        }
       }
     }
   }
@@ -165,7 +229,6 @@ function findSinks(file: FileAnalysis): SourceInfo[] {
       });
     }
 
-    // Also catch standalone fetch
     if (call.expression === 'fetch' || (hasNetworkImport && call.expression.includes('request'))) {
       if (!sinks.some(s => s.location.line === call.location.line)) {
         sinks.push({
@@ -188,12 +251,11 @@ function findIntermediateSteps(
 ): TaintFlow['intermediateSteps'] {
   const steps: TaintFlow['intermediateSteps'] = [];
 
-  // Look for encoding/serialization calls between source and sink
   for (const call of file.callExpressions) {
     if (call.location.line <= source.location.line) continue;
     if (call.location.line >= sink.location.line) continue;
 
-    const isEncoding = /toString.*base64|btoa|JSON\.stringify|encodeURI|Buffer\.from/.test(call.expression);
+    const isEncoding = /toString.*base64|btoa|atob|JSON\.stringify|encodeURI|Buffer\.from|Buffer\.alloc|\.toString\(|createHash|createHmac/.test(call.expression);
     if (isEncoding) {
       steps.push({
         description: `Data transformation: ${call.expression}`,
@@ -209,8 +271,6 @@ function combineSeverity(sourceSev: Severity, sinkSev: Severity): Severity {
   const order: Severity[] = ['info', 'low', 'medium', 'high', 'critical'];
   const sourceIdx = order.indexOf(sourceSev);
   const sinkIdx = order.indexOf(sinkSev);
-
-  // Take the higher severity, but bump up if both are high+
   if (sourceIdx >= 3 && sinkIdx >= 3) return 'critical';
   return order[Math.max(sourceIdx, sinkIdx)]!;
 }

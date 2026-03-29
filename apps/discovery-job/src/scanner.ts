@@ -37,6 +37,7 @@ export async function scanAndStore(req: ScanRequest): Promise<ScanResponse> {
         packageName: req.packageName,
         slug,
         jobId,
+        createPR: req.isGitHub, // Auto-create PRs on GitHub repos
       }),
       signal: AbortSignal.timeout(180000), // 3 min timeout
     });

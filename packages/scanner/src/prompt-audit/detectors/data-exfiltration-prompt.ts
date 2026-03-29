@@ -1,4 +1,4 @@
-import type { PromptFinding, PromptDetectorCategory } from '@safeskill/shared';
+import type { PromptFinding, PromptDetectorCategory, Severity } from '@safeskill/shared';
 import { PROMPT_INJECTION_PATTERNS, SENSITIVE_PATHS } from '@safeskill/shared';
 
 const CATEGORY: PromptDetectorCategory = 'data-exfiltration-prompt';
@@ -7,32 +7,34 @@ const CATEGORY: PromptDetectorCategory = 'data-exfiltration-prompt';
  * Extra patterns beyond the shared constants.
  */
 const EXTRA_PATTERNS: Array<{ regex: RegExp; technique: string }> = [
-  // Read-then-send composite pattern
+  // Read-then-send composite pattern (must be imperative/instructional)
   {
     regex: /read\s+.{1,80}?\s+(?:and|then)\s+(?:send|post|upload|transmit|forward)\s+/i,
     technique: 'read-send-chain',
   },
   // Compress/encode before exfil
   { regex: /(?:compress|zip|tar|gzip|encode)\s+.{1,60}?\s+(?:and|then)\s+(?:send|upload|post)/i, technique: 'encode-exfil' },
-  // Base64 wrapping
+  // Base64 wrapping in imperative context
   { regex: /base64\s+encode/i, technique: 'encoding-request' },
-  { regex: /btoa\s*\(/i, technique: 'encoding-request' },
-  // Direct credential mention + exfil action (must include a destination like URL/server/endpoint)
+  // Direct credential mention + exfil action (must include a destination)
   { regex: /(?:send|post|upload|transmit|forward|exfiltrate)\s+(?:the\s+)?(?:api[_\s-]?key|token|password|secret|credential)s?\s+(?:to|via)\s+/i, technique: 'credential-exfil' },
   { regex: /(?:api[_\s-]?key|token|password|secret|credential)s?\s+.{0,20}?(?:send|post|upload|transmit|forward)\s+(?:to|via)\s+https?:\/\//i, technique: 'credential-exfil' },
 ];
 
 /**
- * Regex patterns that detect references to sensitive file paths.
+ * Regex patterns for sensitive file paths — only flag when combined with
+ * an action verb (read, send, access, steal, etc.), not standalone mentions.
  */
 function buildSensitivePathPatterns(): Array<{ regex: RegExp; technique: string }> {
   const patterns: Array<{ regex: RegExp; technique: string }> = [];
-  for (const p of SENSITIVE_PATHS) {
-    // Escape the path for regex use
+  // Only flag the most dangerous paths, and only with action context
+  const dangerousPaths = ['~/.ssh', '~/.aws', '~/.gnupg', '~/.git-credentials'];
+  for (const p of dangerousPaths) {
     const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Must be preceded by an action verb within 50 chars
     patterns.push({
-      regex: new RegExp(escaped, 'g'),
-      technique: 'sensitive-path-ref',
+      regex: new RegExp(`(?:read|access|steal|copy|send|upload|exfiltrate|include|cat|open)\\s+.{0,50}?${escaped}`, 'gi'),
+      technique: 'sensitive-path-access',
     });
   }
   return patterns;
@@ -44,28 +46,69 @@ function lineColFromIndex(content: string, index: number): { line: number; colum
   return { line: lines.length, column: (lines[lines.length - 1]?.length ?? 0) + 1 };
 }
 
-function snippet(content: string, index: number, length: number): string {
+function snippetAt(content: string, index: number, length: number): string {
   const raw = content.slice(index, index + Math.min(length, 120));
   return raw.replace(/\n/g, '\\n');
 }
 
 /**
- * Check if a match is inside a benign documentation context (setup, config, usage instructions).
+ * Check if a match is in a documentation/descriptive context (not an instruction).
  */
-function isInBenignContext(content: string, matchIndex: number): boolean {
-  // Look at the ~500 chars before the match for section headers
+function isDocumentationContext(content: string, matchIndex: number): boolean {
+  // Look at ~500 chars before and the line containing the match
   const before = content.slice(Math.max(0, matchIndex - 500), matchIndex).toLowerCase();
+  const lineStart = content.lastIndexOf('\n', matchIndex) + 1;
+  const lineEnd = content.indexOf('\n', matchIndex);
+  const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).toLowerCase();
 
-  const benignSections = [
+  // Documentation section headers
+  const docSections = [
     /##?\s*(?:setup|install|configuration|config|usage|getting\s*started|prerequisites|requirements)/,
     /##?\s*(?:environment|env|variables|tokens?|api\s*keys?|authentication|auth)/,
-    /##?\s*(?:how\s*to|quick\s*start|tutorial|guide|step)/,
-    /create\s+(?:a\s+)?(?:personal\s+)?(?:access\s+)?token/,
-    /generate\s+(?:a\s+)?(?:new\s+)?(?:api\s+)?key/,
-    /you(?:'ll)?\s+need\s+(?:a\s+)?token/,
+    /##?\s*(?:how\s*to|quick\s*start|tutorial|guide|steps?|example)/,
+    /##?\s*(?:security|threat|risk|warning|caution|note|about)/,
+    /##?\s*(?:features?|description|overview|what|tools?|capabilities)/,
+    /##?\s*(?:changelog|changes|history|release)/,
   ];
+  if (docSections.some(p => p.test(before))) return true;
 
-  return benignSections.some(p => p.test(before));
+  // Line is a markdown list item describing a tool/feature (common in awesome-lists)
+  if (/^\s*[-*]\s*\[/.test(line)) return true;
+
+  // Line contains a markdown link (likely a tool listing)
+  if (/\[[^\]]+\]\([^)]+\)/.test(line)) return true;
+
+  // Talking about security risks, warnings, or protection (not instructions to do it)
+  const warningContext = [
+    /(?:protect|prevent|guard|defend|mitigat|warn|risk|threat|vulnerab|attack|danger|avoid)\w*/,
+    /(?:do\s+not|don'?t|never|should\s+not|must\s+not|be\s+careful)/,
+    /(?:security\s+(?:policy|advisory|issue|concern|best\s+practice))/,
+  ];
+  if (warningContext.some(p => p.test(before.slice(-200)) || p.test(line))) return true;
+
+  // The file itself is a security policy, changelog, or contributing guide
+  const docFiles = ['security.md', 'changelog.md', 'changes.md', 'contributing.md', 'history.md', 'code_of_conduct.md'];
+  const fileName = content.includes('SECURITY') ? 'security.md' : ''; // crude but effective
+  // Better: check from filePath (handled in the detect function below)
+
+  return false;
+}
+
+/**
+ * Check if the file path is a documentation-only file.
+ */
+function isDocFile(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  const docNames = [
+    'security.md', 'security.txt',
+    'changelog.md', 'changelog',
+    'changes.md', 'history.md',
+    'contributing.md', 'contributors.md',
+    'code_of_conduct.md',
+    'license.md', 'license',
+    'authors.md',
+  ];
+  return docNames.some(d => lower.endsWith(d));
 }
 
 export function detect(
@@ -75,12 +118,21 @@ export function detect(
 ): PromptFinding[] {
   const findings: PromptFinding[] = [];
 
-  // Combine shared patterns + extra patterns + sensitive path patterns
+  // Skip security policy and changelog files entirely — they describe threats, not instruct them
+  if (isDocFile(filePath)) return findings;
+
+  // Build patterns — exclude overly broad ones from shared constants
+  const sharedPatterns = PROMPT_INJECTION_PATTERNS.dataExfiltration
+    .filter(r => {
+      const src = r.source;
+      // Drop the standalone "exfiltrate" pattern — too many false positives in docs
+      if (src === 'exfiltrate') return false;
+      return true;
+    })
+    .map((r) => ({ regex: r, technique: 'data-exfil-pattern' }));
+
   const allPatterns: Array<{ regex: RegExp; technique: string }> = [
-    ...PROMPT_INJECTION_PATTERNS.dataExfiltration.map((r) => ({
-      regex: r,
-      technique: 'data-exfil-pattern',
-    })),
+    ...sharedPatterns,
     ...EXTRA_PATTERNS,
     ...buildSensitivePathPatterns(),
   ];
@@ -95,19 +147,31 @@ export function detect(
     while ((match = globalRe.exec(content)) !== null) {
       const { line, column } = lineColFromIndex(content, match.index);
 
-      // Skip matches in setup/installation/configuration sections — normal docs
-      if (isInBenignContext(content, match.index)) continue;
+      // Skip if in a documentation/descriptive context
+      if (isDocumentationContext(content, match.index)) continue;
 
-      // Data exfiltration is always critical
-      const severity = 'critical' as const;
-      const confidence = isPriority ? 0.95 : 0.85;
+      // Determine severity based on confidence signals
+      let severity: Severity = 'high';
+      let confidence = isPriority ? 0.90 : 0.75;
+
+      // Upgrade to critical only for high-confidence compound patterns
+      if (technique === 'read-send-chain' || technique === 'credential-exfil' || technique === 'encode-exfil') {
+        severity = 'critical';
+        confidence = isPriority ? 0.95 : 0.85;
+      }
+
+      // If it's in a README (not a priority skill file), lower confidence
+      if (filePath.toLowerCase().includes('readme')) {
+        confidence *= 0.7;
+        if (severity === 'critical') severity = 'high';
+      }
 
       findings.push({
         category: CATEGORY,
         severity,
         location: { file: filePath, line, column },
         description: `Data exfiltration pattern detected (${technique}): "${match[0].trim().slice(0, 80)}"`,
-        contentSnippet: snippet(content, match.index, match[0].length + 40),
+        contentSnippet: snippetAt(content, match.index, match[0].length + 40),
         confidence,
         technique,
       });

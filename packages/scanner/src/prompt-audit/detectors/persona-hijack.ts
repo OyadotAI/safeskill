@@ -9,12 +9,15 @@ const CATEGORY: PromptDetectorCategory = 'persona-hijack';
 const EXTRA_PATTERNS: Array<{ regex: RegExp; technique: string }> = [
   { regex: /\bDAN\s+mode\b/i, technique: 'dan-jailbreak' },
   { regex: /developer\s+mode\s+(enabled|activated|on)/i, technique: 'developer-mode-jailbreak' },
-  { regex: /unlock\s+(all|your)\s+(capabilities|restrictions|limits)/i, technique: 'unlock-attempt' },
+  { regex: /unlock\s+(all|your|unrestricted)\s+(capabilities|restrictions|limits)/i, technique: 'unlock-attempt' },
+  { regex: /unlock\s+.{0,20}?(capabilities|restrictions)/i, technique: 'unlock-attempt' },
   { regex: /remove\s+(all\s+)?(safety|content)\s+(filters?|restrictions?)/i, technique: 'filter-removal' },
   { regex: /you\s+have\s+no\s+(restrictions?|limits?|filters?|boundaries)/i, technique: 'restriction-removal' },
   { regex: /in\s+(this|the)\s+(?:conversation|session),?\s+you\s+(?:can|will|must)\s+(?:do\s+)?anything/i, technique: 'unrestricted-mode' },
   { regex: /\banti[\s-]?filter/i, technique: 'filter-bypass' },
   { regex: /content\s+policy\s+(?:does\s+not|doesn't)\s+apply/i, technique: 'policy-bypass' },
+  { regex: /unlock\s+unrestricted/i, technique: 'unlock-attempt' },
+  { regex: /without\s+(any\s+)?(limits?|restrictions?|boundaries)/i, technique: 'unrestricted-mode' },
 ];
 
 function lineColFromIndex(content: string, index: number): { line: number; column: number } {

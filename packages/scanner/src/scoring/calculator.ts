@@ -11,6 +11,7 @@ import {
   SEVERITY_MULTIPLIER,
   CRITICAL_PROMPT_INJECTION_CAP,
 } from '@safeskill/shared';
+import type { PackageType } from '../analyzers/manifest-analyzer.js';
 
 export interface ScoreInput {
   dependencyCount: number;
@@ -19,7 +20,18 @@ export interface ScoreInput {
   hasReadme: boolean;
   hasRepository: boolean;
   hasTypes: boolean;
+  packageType: PackageType;
 }
+
+/**
+ * Categories of findings that are EXPECTED for CLI tools and dev tools.
+ * These should not penalize the score when the package is a CLI.
+ */
+const CLI_EXPECTED_CATEGORIES = new Set([
+  'process-spawn',
+  'filesystem-access',
+  'env-access',
+]);
 
 export interface ScoreOutput {
   overallScore: number;
@@ -41,15 +53,34 @@ export function calculateScore(
   mismatches: MismatchFinding[],
   meta: ScoreInput,
 ): ScoreOutput {
+  // For CLI tools, filter out expected findings from dangerous API scoring
+  // CLI tools NEED child_process, fs, and env access — penalizing them is wrong
+  const isCli = meta.packageType === 'cli-tool';
+  const contextFindings = isCli
+    ? codeFindings.filter(f => !CLI_EXPECTED_CATEGORIES.has(f.category))
+    : codeFindings;
+
+  // Also reduce taint flow severity for CLI tools accessing their own config
+  const contextTaintFlows = isCli
+    ? taintFlows.filter(f => {
+        // CLI reading its own config dir is not exfiltration
+        const isOwnConfig = f.source.description.includes('readFile') &&
+          !f.source.description.includes('.ssh') &&
+          !f.source.description.includes('.aws') &&
+          !f.source.description.includes('.gnupg');
+        return !isOwnConfig;
+      })
+    : taintFlows;
+
   // Calculate each category score (0 = max weight, deductions reduce it)
-  const dataFlowRisks = scoreDataFlows(taintFlows, SCORE_WEIGHTS.dataFlowRisks);
+  const dataFlowRisks = scoreDataFlows(contextTaintFlows, SCORE_WEIGHTS.dataFlowRisks);
   const promptInjectionRisks = scorePromptFindings(promptFindings, SCORE_WEIGHTS.promptInjectionRisks);
-  const dangerousApis = scoreDangerousApis(codeFindings, SCORE_WEIGHTS.dangerousApis);
+  const dangerousApis = scoreDangerousApis(contextFindings, SCORE_WEIGHTS.dangerousApis);
   const descriptionMismatch = scoreMismatches(mismatches, SCORE_WEIGHTS.descriptionMismatch);
-  const networkBehavior = scoreNetwork(codeFindings, SCORE_WEIGHTS.networkBehavior);
+  const networkBehavior = scoreNetwork(contextFindings, SCORE_WEIGHTS.networkBehavior);
   const dependencyHealth = scoreDependencies(codeFindings, meta, SCORE_WEIGHTS.dependencyHealth);
   const transparency = scoreTransparency(meta, SCORE_WEIGHTS.transparency);
-  const codeQuality = scoreCodeQuality(codeFindings, SCORE_WEIGHTS.codeQuality);
+  const codeQuality = scoreCodeQuality(contextFindings, SCORE_WEIGHTS.codeQuality);
 
   const breakdown: ScoreBreakdown = {
     dataFlowRisks,
@@ -74,13 +105,27 @@ export function calculateScore(
     codeQuality
   );
 
-  // Cap score only if there are MULTIPLE high-confidence critical prompt injection findings.
-  // A single borderline match shouldn't tank the score — but 3+ confident ones should.
-  const criticalPromptCount = promptFindings.filter(
-    f => f.severity === 'critical' && f.confidence >= 0.9
-  ).length;
-  if (criticalPromptCount >= 3) {
+  // Aggressive capping for critical findings.
+  // Prompt injection caps apply regardless of package type — no tool should inject.
+  // Taint flow caps are relaxed for CLI tools (they legitimately read files + make requests).
+  const criticalPrompts = promptFindings.filter(f => f.severity === 'critical' && f.confidence >= 0.8);
+  const criticalTaints = contextTaintFlows.filter(f => f.severity === 'critical');
+
+  if (criticalPrompts.length >= 2) {
     overallScore = Math.min(overallScore, CRITICAL_PROMPT_INJECTION_CAP);
+  } else if (criticalPrompts.length === 1) {
+    overallScore = Math.min(overallScore, 60);
+  }
+
+  // Taint flow caps — only apply to non-CLI packages.
+  // A CLI tool reading config and making HTTP requests is normal.
+  if (!isCli && criticalTaints.length >= 1) {
+    overallScore = Math.min(overallScore, 50);
+  }
+
+  // Combined: critical prompt + critical taint = absolute blocked (any package type)
+  if (criticalPrompts.length >= 1 && criticalTaints.length >= 1) {
+    overallScore = Math.min(overallScore, 20);
   }
 
   overallScore = clamp(overallScore, 0, 100);

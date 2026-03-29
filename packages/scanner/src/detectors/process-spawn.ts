@@ -5,6 +5,7 @@ import { truncate } from '../utils.js';
 
 const CHILD_PROCESS_MODULES = new Set<string>(DANGEROUS_MODULES.process);
 const VM_MODULES = new Set<string>(DANGEROUS_MODULES.vm);
+const WORKER_MODULES = new Set(['worker_threads', 'node:worker_threads']);
 
 const SPAWN_METHODS = new Set([
   'exec',
@@ -69,6 +70,16 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
         confidence: 1.0,
       });
     }
+    if (WORKER_MODULES.has(mod)) {
+      findings.push({
+        category: 'process-spawn',
+        severity: 'high',
+        location: getLocation(sourceFile, decl.getStart(), relPath),
+        description: `Imports worker_threads — can execute code in isolated threads`,
+        codeSnippet: truncate(decl.getText().trim(), 120),
+        confidence: 0.9,
+      });
+    }
   }
 
   // Check require calls
@@ -100,6 +111,16 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
         description: `Requires VM module "${modName}"`,
         codeSnippet: truncate(call.getText().trim(), 120),
         confidence: 1.0,
+      });
+    }
+    if (WORKER_MODULES.has(modName)) {
+      findings.push({
+        category: 'process-spawn',
+        severity: 'high',
+        location: getLocation(sourceFile, call.getStart(), relPath),
+        description: `Requires worker_threads — can execute code in isolated threads`,
+        codeSnippet: truncate(call.getText().trim(), 120),
+        confidence: 0.9,
       });
     }
   }
