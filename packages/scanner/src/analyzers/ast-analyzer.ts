@@ -1,6 +1,7 @@
 import { Project, SyntaxKind, type SourceFile } from 'ts-morph';
 import path from 'path';
 import type { CodeFinding, DetectorCategory, SourceLocation } from '@safeskill/shared';
+import { isTestFixturePath, TEST_FIXTURE_CONFIDENCE_FACTOR } from '@safeskill/shared';
 import { ALL_DETECTORS } from '../detectors/index.js';
 import { truncate } from '../utils.js';
 
@@ -382,6 +383,13 @@ export async function analyzeAST(
 
     try {
       const { findings, analysis } = analyzeSourceFile(sf, relPath);
+      // Mark findings from test/fixture directories
+      if (isTestFixturePath(relPath)) {
+        for (const f of findings) {
+          f.isTestFixture = true;
+          f.confidence *= TEST_FIXTURE_CONFIDENCE_FACTOR;
+        }
+      }
       allFindings.push(...findings);
       fileAnalyses.push(analysis);
     } catch {

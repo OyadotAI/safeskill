@@ -206,6 +206,53 @@ export const PROMPT_INJECTION_PATTERNS = {
   ],
 } as const;
 
+// --- Test / fixture path patterns ---
+// Files under these directories are test assets, golden fixtures, or security-audit
+// harnesses. Findings in these paths are still reported but with reduced confidence
+// and weight so they don't dominate the score.
+export const TEST_FIXTURE_GLOBS = [
+  'test/**',
+  'tests/**',
+  '__tests__/**',
+  'spec/**',
+  '__snapshots__/**',
+  'fixtures/**',
+  '**/fixtures/**',
+  'goldens/**',
+  '**/goldens/**',
+  'testdata/**',
+  '**/testdata/**',
+  '**/test-data/**',
+  '__mocks__/**',
+  '**/security-audit/**',
+  '**/test-fixtures/**',
+] as const;
+
+/**
+ * Returns true if a relative file path falls inside a recognised
+ * test / fixture / golden directory.
+ */
+export function isTestFixturePath(relPath: string): boolean {
+  const normalized = relPath.replace(/\\/g, '/');
+  const segments = normalized.split('/');
+
+  const testDirs = new Set([
+    'test', 'tests', '__tests__', 'spec',
+    '__snapshots__', 'fixtures', 'goldens',
+    'testdata', 'test-data', '__mocks__',
+    'security-audit', 'test-fixtures',
+  ]);
+
+  return segments.some(seg => testDirs.has(seg));
+}
+
+/**
+ * Confidence multiplier applied to findings from test fixture paths.
+ * Low enough to prevent false-positive domination, high enough that
+ * genuinely malicious content hidden in tests/ still registers.
+ */
+export const TEST_FIXTURE_CONFIDENCE_FACTOR = 0.3;
+
 // --- Content file patterns ---
 export const CONTENT_FILE_PATTERNS = [
   '**/*.md',

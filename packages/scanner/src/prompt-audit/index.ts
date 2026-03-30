@@ -1,5 +1,6 @@
 import type { ContentFile } from '../analyzers/content-scanner.js';
-import type { PromptFinding } from '@safeskill/shared';
+import type { PromptFinding, Severity } from '@safeskill/shared';
+import { TEST_FIXTURE_CONFIDENCE_FACTOR } from '@safeskill/shared';
 
 import { detect as detectInstructionOverride } from './detectors/instruction-override.js';
 import { detect as detectHiddenText } from './detectors/hidden-text.js';
@@ -29,8 +30,21 @@ const DETECTORS: Array<(content: string, filePath: string, isPriority: boolean) 
 ];
 
 /**
+ * Severity downgrade map for test fixture findings.
+ * critical → medium, high → low. Keeps them visible but non-dominant.
+ */
+const FIXTURE_SEVERITY_DOWNGRADE: Record<Severity, Severity> = {
+  critical: 'medium',
+  high: 'low',
+  medium: 'low',
+  low: 'info',
+  info: 'info',
+};
+
+/**
  * Runs all prompt injection detectors on a single file.
- * Returns findings with severity bumps applied for priority files.
+ * Returns findings with severity bumps applied for priority files,
+ * and confidence/severity reductions for test fixture files.
  */
 function auditSingleFile(file: ContentFile): PromptFinding[] {
   const allFindings: PromptFinding[] = [];
@@ -38,6 +52,15 @@ function auditSingleFile(file: ContentFile): PromptFinding[] {
   for (const detector of DETECTORS) {
     const findings = detector(file.content, file.relativePath, file.isPriority);
     allFindings.push(...findings);
+  }
+
+  // Apply test fixture reduction centrally — affects all 8 detectors uniformly
+  if (file.isTestFixture) {
+    for (const f of allFindings) {
+      f.confidence *= TEST_FIXTURE_CONFIDENCE_FACTOR;
+      f.severity = FIXTURE_SEVERITY_DOWNGRADE[f.severity];
+      f.isTestFixture = true;
+    }
   }
 
   return allFindings;

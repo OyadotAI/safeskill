@@ -2,6 +2,7 @@ import { readFile } from 'fs/promises';
 import { globby } from 'globby';
 import path from 'path';
 import type { CodeFinding, Severity } from '@safeskill/shared';
+import { isTestFixturePath, TEST_FIXTURE_CONFIDENCE_FACTOR } from '@safeskill/shared';
 import { truncate, getLineContent } from '../utils.js';
 
 interface PatternRule {
@@ -84,6 +85,8 @@ export async function analyzePatterns(dir: string): Promise<PatternMatchResult> 
         return;
       }
 
+      const isFixture = isTestFixturePath(relPath);
+
       for (const rule of PATTERNS) {
         const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
         let match: RegExpExecArray | null;
@@ -100,7 +103,8 @@ export async function analyzePatterns(dir: string): Promise<PatternMatchResult> 
             location: { file: relPath, line, column },
             description: rule.description,
             codeSnippet: truncate(getLineContent(content, line).trim(), 120),
-            confidence: rule.confidence,
+            confidence: isFixture ? rule.confidence * TEST_FIXTURE_CONFIDENCE_FACTOR : rule.confidence,
+            isTestFixture: isFixture || undefined,
           });
 
           flaggedFiles.add(relPath);

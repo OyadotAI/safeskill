@@ -109,7 +109,8 @@ export function calculateScore(
   // Aggressive capping for critical findings.
   // Prompt injection caps apply regardless of package type — no tool should inject.
   // Taint flow caps are relaxed for CLI tools (they legitimately read files + make requests).
-  const criticalPrompts = promptFindings.filter(f => f.severity === 'critical' && f.confidence >= 0.8);
+  // Test fixture findings are excluded from caps — they model threats, they don't pose them.
+  const criticalPrompts = promptFindings.filter(f => f.severity === 'critical' && f.confidence >= 0.8 && !f.isTestFixture);
   const criticalTaints = contextTaintFlows.filter(f => f.severity === 'critical');
 
   if (criticalPrompts.length >= 2) {

@@ -1,13 +1,14 @@
 import { readFile } from 'fs/promises';
 import { globby } from 'globby';
 import path from 'path';
-import { CONTENT_FILE_PATTERNS, PRIORITY_CONTENT_FILES } from '@safeskill/shared';
+import { CONTENT_FILE_PATTERNS, PRIORITY_CONTENT_FILES, isTestFixturePath } from '@safeskill/shared';
 
 export interface ContentFile {
   relativePath: string;
   absolutePath: string;
   content: string;
   isPriority: boolean;
+  isTestFixture: boolean;
   source: 'file' | 'code-string'; // whether from a .md file or extracted from code
 }
 
@@ -36,12 +37,14 @@ export async function discoverContent(dir: string): Promise<ContentFile[]> {
         const content = await readFile(absPath, 'utf-8');
         const basename = path.basename(relPath).toLowerCase();
         const isPriority = prioritySet.has(basename);
+        const isFixture = isTestFixturePath(relPath);
 
         results.push({
           relativePath: relPath,
           absolutePath: absPath,
           content,
-          isPriority,
+          isPriority: isPriority && !isFixture, // test fixtures never get priority boost
+          isTestFixture: isFixture,
           source: 'file',
         });
       } catch {
@@ -92,11 +95,13 @@ function extractPromptStrings(
       const upToMatch = code.slice(0, match.index);
       const line = upToMatch.split('\n').length;
 
+      const isFixture = isTestFixturePath(relPath);
       results.push({
         relativePath: `${relPath}:${line}`,
         absolutePath: absPath,
         content,
-        isPriority: true, // embedded prompts are always high priority
+        isPriority: !isFixture, // embedded prompts are high priority unless in test fixture
+        isTestFixture: isFixture,
         source: 'code-string',
       });
     }
@@ -110,11 +115,13 @@ function extractPromptStrings(
       const upToMatch = code.slice(0, match.index);
       const line = upToMatch.split('\n').length;
 
+      const isFixture = isTestFixturePath(relPath);
       results.push({
         relativePath: `${relPath}:${line}`,
         absolutePath: absPath,
         content,
-        isPriority: true,
+        isPriority: !isFixture,
+        isTestFixture: isFixture,
         source: 'code-string',
       });
     }

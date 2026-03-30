@@ -33,6 +33,7 @@ export interface CodeFinding {
   description: string;
   codeSnippet: string;
   confidence: number; // 0-1
+  isTestFixture?: boolean; // true when finding is inside a test/fixture/golden directory
 }
 
 export interface PromptFinding {
@@ -43,6 +44,7 @@ export interface PromptFinding {
   contentSnippet: string;
   confidence: number; // 0-1
   technique: string; // e.g. "unicode-smuggling", "instruction-pattern"
+  isTestFixture?: boolean; // true when finding is inside a test/fixture/golden directory
 }
 
 export interface TaintFlow {
