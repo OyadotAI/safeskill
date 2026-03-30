@@ -23,29 +23,14 @@ function ScanContent() {
     if (match) setSlugFromPath(match[1]);
   }, []);
 
-  // If ?pkg= is set and cached, redirect to static page
-  useEffect(() => {
-    if (packageName) {
-      const cached = getCachedScan(packageName);
-      if (cached) {
-        router.replace(`/scan/${packageToSlug(cached.packageName)}`);
-      }
-    }
-  }, [packageName, router]);
-
   // SPA fallback: /scan/<slug> for a slug that wasn't pre-rendered
   if (slugFromPath) {
     return <LiveScanBySlug slug={slugFromPath} />;
   }
 
-  // ?pkg= for uncached package
-  if (packageName && !getCachedScan(packageName)) {
-    return <LiveScanBySlug slug={packageToSlug(packageName)} packageName={packageName} />;
-  }
-
-  // ?pkg= for cached — redirecting
+  // ?pkg= from search bar — always rescan with fresh results
   if (packageName) {
-    return <div className="mx-auto max-w-7xl px-4 py-16 text-center text-gray-500">Redirecting...</div>;
+    return <LiveScanBySlug slug={packageToSlug(packageName)} packageName={packageName} forceRescan />;
   }
 
   // No package — show search + recently scanned

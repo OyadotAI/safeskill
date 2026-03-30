@@ -35,11 +35,12 @@ const STATUS_LABELS: Record<ScanStatus, string> = {
   failed: 'Scan failed',
 };
 
-export function LiveScanBySlug({ slug, packageName }: { slug: string; packageName?: string }) {
+export function LiveScanBySlug({ slug, packageName, forceRescan }: { slug: string; packageName?: string; forceRescan?: boolean }) {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [status, setStatus] = useState<ScanStatus>('resolving');
   const [error, setError] = useState('');
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isRescan, setIsRescan] = useState(forceRescan ?? false);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -53,22 +54,24 @@ export function LiveScanBySlug({ slug, packageName }: { slug: string; packageNam
     setError('');
     stopPolling();
 
-    // 1. Try fetching cached result by slug first (fastest path)
-    try {
-      const cachedRes = await fetch(`${API_BASE}/api/scan/${slug}`);
-      if (cachedRes.ok) {
-        const data = await cachedRes.json();
-        if (data.overallScore != null) {
-          setResult(data as ScanResult);
-          setStatus('completed');
-          return;
+    // 1. Try fetching cached result (skip if rescan requested)
+    if (!isRescan) {
+      try {
+        const cachedRes = await fetch(`${API_BASE}/api/scan/${slug}`);
+        if (cachedRes.ok) {
+          const data = await cachedRes.json();
+          if (data.overallScore != null) {
+            setResult(data as ScanResult);
+            setStatus('completed');
+            return;
+          }
         }
+      } catch {
+        // not cached, continue to scan
       }
-    } catch {
-      // not cached, continue to scan
     }
 
-    // 2. Not cached — trigger a scan
+    // 2. Trigger a scan (with rescan flag if forced)
     const guesses = packageName ? [packageName] : slugToPackageGuesses(slug);
 
     for (const pkg of guesses) {
@@ -76,7 +79,7 @@ export function LiveScanBySlug({ slug, packageName }: { slug: string; packageNam
         const res = await fetch(`${API_BASE}/api/scan`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ package: pkg }),
+          body: JSON.stringify({ package: pkg, rescan: isRescan || undefined }),
         });
 
         const data = await res.json();
@@ -130,7 +133,7 @@ export function LiveScanBySlug({ slug, packageName }: { slug: string; packageNam
 
     setError(`Could not find package for "${slug}" on npm`);
     setStatus('failed');
-  }, [slug, packageName, stopPolling]);
+  }, [slug, packageName, isRescan, stopPolling]);
 
   useEffect(() => {
     runScan();
@@ -160,11 +163,15 @@ export function LiveScanBySlug({ slug, packageName }: { slug: string; packageNam
 
         <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 sm:p-12">
           <div className="max-w-lg mx-auto text-center">
-            <h2 className="text-xl font-semibold mb-3 text-red-400">Package not found</h2>
+            <h2 className="text-xl font-semibold mb-3 text-red-400">Scan failed</h2>
             <p className="text-gray-400 mb-2 text-sm">{error}</p>
-            <p className="text-gray-600 text-xs mb-6">
-              Make sure the package name is correct and exists on npm.
-            </p>
+            <div className="text-left rounded-lg bg-gray-950 border border-gray-800 p-4 mb-6">
+              <p className="text-xs text-gray-400 mb-2">Make sure the name is correct:</p>
+              <ul className="text-xs text-gray-500 space-y-1">
+                <li><span className="text-gray-400">npm package:</span> <code className="text-emerald-400/70">@scope/package-name</code> or <code className="text-emerald-400/70">package-name</code></li>
+                <li><span className="text-gray-400">GitHub repo:</span> <code className="text-emerald-400/70">owner/repo-name</code></li>
+              </ul>
+            </div>
             <div className="flex items-center justify-center gap-3">
               <button onClick={runScan} className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-semibold rounded-lg text-sm transition-colors">
                 Retry

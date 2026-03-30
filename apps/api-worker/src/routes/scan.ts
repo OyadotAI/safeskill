@@ -42,10 +42,11 @@ export async function handleScan(slug: string, env: Env): Promise<Response> {
   return json({ error: 'not_found', slug }, 404);
 }
 
-/** POST /api/scan — request a scan (returns cached or enqueues). */
+/** POST /api/scan — request a scan. Pass rescan:true to force a fresh scan. */
 export async function handleScanPost(request: Request, env: Env): Promise<Response> {
-  const body = await request.json() as { package?: string };
+  const body = await request.json() as { package?: string; rescan?: boolean };
   const packageName = body.package?.trim();
+  const forceRescan = body.rescan === true;
 
   if (!packageName) {
     return json({ error: 'Missing "package" field' }, 400);
@@ -60,20 +61,20 @@ export async function handleScanPost(request: Request, env: Env): Promise<Respon
 
   const slug = packageToSlug(packageName);
 
-  // Check if already scanned
-  const existing = await gcsGet(env, `results/${slug}.json`);
-  if (existing) {
-    return json({ status: 'completed', slug, result: JSON.parse(existing) });
+  // Return cached result unless rescan is requested
+  if (!forceRescan) {
+    const existing = await gcsGet(env, `results/${slug}.json`);
+    if (existing) {
+      return json({ status: 'completed', slug, result: JSON.parse(existing) });
+    }
+
+    const meta = await firestoreGet(env, 'scans', slug);
+    if (meta && meta.overallScore != null) {
+      return json({ status: 'completed', slug, meta });
+    }
   }
 
-  // Check if already queued
-  const meta = await firestoreGet(env, 'scans', slug);
-  if (meta && meta.overallScore != null) {
-    // Has metadata but somehow GCS is missing — return what we have
-    return json({ status: 'completed', slug, meta });
-  }
-
-  // Enqueue a new scan
+  // Enqueue a new scan (or rescan)
   const jobId = nanoid();
 
   await firestorePut(env, 'jobs', jobId, {

@@ -39,13 +39,13 @@ async function resolveGitHubRepo(repo: string): Promise<ResolvedPackage> {
     let packageName = repo;
     let packageVersion: string | null = null;
 
-    // Try to read package.json for metadata
+    // Try to read package.json for version only — keep repo as the package name
+    // so rescan uses owner/repo (not the internal package.json name which may differ)
     const pkgJsonPath = path.join(cloneDir, 'package.json');
     if (existsSync(pkgJsonPath)) {
       try {
         const raw = await readFile(pkgJsonPath, 'utf-8');
         const pkgJson = JSON.parse(raw) as Record<string, string>;
-        packageName = pkgJson.name ?? repo;
         packageVersion = pkgJson.version ?? null;
       } catch {
         // use repo name

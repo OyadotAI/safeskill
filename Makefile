@@ -97,3 +97,16 @@ scan-top: build ## Scan top N from marketplace index (usage: make scan-top N=100
 
 # --- All-in-one ---
 setup: install build seed ## Full setup: install, build, crawl 10K+ skills
+
+release: build ## Build, deploy everything, and publish CLI to npm
+	@echo "\n\033[36m▸ Deploying API worker...\033[0m"
+	cd apps/api-worker && npx wrangler deploy
+	@echo "\n\033[36m▸ Deploying web to Cloudflare Pages...\033[0m"
+	cd apps/web && npx next build && cp out/scan.html out/scan/_scan-fallback.html && npx wrangler pages deploy out --project-name $(CF_PROJECT) --branch main --commit-dirty=true
+	@echo "\n\033[36m▸ Deploying scanner to Cloud Run...\033[0m"
+	gcloud builds submit --config apps/scanner-worker/cloudbuild.yaml .
+	@echo "\n\033[36m▸ Deploying discovery job to Cloud Run...\033[0m"
+	gcloud builds submit --config apps/discovery-job/cloudbuild.yaml .
+	@echo "\n\033[36m▸ Publishing CLI to npm...\033[0m"
+	cd packages/cli && npm publish --access public
+	@echo "\n\033[32m✔ Release complete.\033[0m"

@@ -1,13 +1,48 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { SearchBar } from '@/components/SearchBar';
 import { ScoreDisplay } from '@/components/ScoreDisplay';
 import { FindingsList } from '@/components/FindingsList';
 import { PermissionGrid } from '@/components/PermissionGrid';
 import { TaintFlowList } from '@/components/TaintFlowList';
 import type { ScanResult } from '@safeskill/shared';
+import { packageToSlug } from '@/data/scan-cache';
 
-export function ScanReportClient({ result }: { result: ScanResult }) {
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+    >
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+}
+
+export function ScanReportClient({ result: initialResult }: { result: ScanResult }) {
+  // Hydrate with build-time data, then refresh from API for latest packageName
+  const [result, setResult] = useState(initialResult);
+
+  useEffect(() => {
+    if (!API_BASE) return;
+    const slug = packageToSlug(initialResult.packageName);
+    fetch(`${API_BASE}/api/scan/${slug}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.packageName) setResult(data); })
+      .catch(() => {});
+  }, [initialResult.packageName]);
   const totalFindings = result.codeFindings.length + result.promptFindings.length;
   const criticalCount = [...result.codeFindings, ...result.promptFindings].filter(f => f.severity === 'critical').length;
   const highCount = [...result.codeFindings, ...result.promptFindings].filter(f => f.severity === 'high').length;
@@ -17,20 +52,31 @@ export function ScanReportClient({ result }: { result: ScanResult }) {
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-emerald-400">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              <path d="M9 12l2 2 4-4" />
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-emerald-400">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <path d="M9 12l2 2 4-4" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{result.packageName}</h1>
+              <p className="text-sm text-gray-500">
+                {result.packageVersion && <span>v{result.packageVersion} &middot; </span>}
+                Scanned {new Date(result.timestamp).toLocaleDateString()} &middot; {(result.duration / 1000).toFixed(1)}s
+              </p>
+            </div>
+          </div>
+          <a
+            href={`/scan?pkg=${encodeURIComponent(result.packageName)}`}
+            className="shrink-0 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium rounded-lg text-sm transition-colors flex items-center gap-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{result.packageName}</h1>
-            <p className="text-sm text-gray-500">
-              {result.packageVersion && <span>v{result.packageVersion} &middot; </span>}
-              Scanned {new Date(result.timestamp).toLocaleDateString()} &middot; {(result.duration / 1000).toFixed(1)}s
-            </p>
-          </div>
+            Rescan
+          </a>
         </div>
       </div>
 
@@ -114,7 +160,7 @@ export function ScanReportClient({ result }: { result: ScanResult }) {
                       }}
                     />
                   </div>
-                  <span className="text-[11px] text-gray-500 w-10 shrink-0">{value}/{max}</span>
+                  <span className="text-[11px] text-gray-500 w-10 shrink-0">{Math.round(value)}/{max}</span>
                 </div>
               );
             })}
@@ -173,6 +219,40 @@ export function ScanReportClient({ result }: { result: ScanResult }) {
         <div className="rounded-lg bg-gray-950 border border-gray-800 p-4 font-mono text-sm">
           <span className="text-emerald-400 select-none">$ </span>
           <span className="text-gray-50">npx skillsafe scan {result.packageName}</span>
+        </div>
+      </div>
+
+      {/* Badge */}
+      <div className="rounded-2xl border border-gray-800/80 bg-gray-900/50 p-6 mb-8">
+        <p className="text-sm text-gray-400 mb-4">Add a safety badge to your README:</p>
+        {/* Badge preview */}
+        <div className="mb-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`${API_BASE}/api/badge/${packageToSlug(result.packageName)}`}
+            alt={`SafeSkill score for ${result.packageName}`}
+            height={20}
+          />
+        </div>
+        {/* Markdown */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">Markdown</span>
+            <CopyButton text={`[![SafeSkill](https://safeskill.dev/api/badge/${packageToSlug(result.packageName)})](https://safeskill.dev/scan/${packageToSlug(result.packageName)})`} />
+          </div>
+          <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 font-mono text-xs text-gray-400 overflow-x-auto">
+            [![SafeSkill](https://safeskill.dev/api/badge/{packageToSlug(result.packageName)})](https://safeskill.dev/scan/{packageToSlug(result.packageName)})
+          </div>
+        </div>
+        {/* HTML */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">HTML</span>
+            <CopyButton text={`<a href="https://safeskill.dev/scan/${packageToSlug(result.packageName)}"><img src="https://safeskill.dev/api/badge/${packageToSlug(result.packageName)}" alt="SafeSkill"></a>`} />
+          </div>
+          <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 font-mono text-xs text-gray-400 overflow-x-auto">
+            {'<a href="https://safeskill.dev/scan/'}{packageToSlug(result.packageName)}{'"><img src="https://safeskill.dev/api/badge/'}{packageToSlug(result.packageName)}{'" alt="SafeSkill"></a>'}
+          </div>
         </div>
       </div>
 

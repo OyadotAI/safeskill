@@ -142,6 +142,24 @@ export function printReport(result: ScanResult): void {
       console.log('');
     }
   }
+
+  // Badge
+  const slug = packageToSlug(result.packageName);
+  console.log(chalk.bold('  Badge:'));
+  console.log(chalk.dim('  Add to your README:'));
+  console.log('');
+  console.log(`  ${chalk.cyan(`[![SafeSkill](https://safeskill.dev/api/badge/${slug})](https://safeskill.dev/scan/${slug})`)}`);
+  console.log('');
+}
+
+function packageToSlug(packageName: string): string {
+  return packageName
+    .replace(/^@/, '')
+    .replace(/\//g, '-')
+    .replace(/[^a-z0-9\-]/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
 }
 
 function severityOrder(severity: string): number {

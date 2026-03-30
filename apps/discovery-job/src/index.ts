@@ -5,12 +5,7 @@
  * creates PRs with badges, and stores results.
  *
  * Runs as a Cloud Run Job triggered by Cloud Scheduler daily.
- *
- * Sources:
- * - GitHub topics: mcp-server, claude-skill, openclaw, claude-code-skill, agent-skills
- * - GitHub curated lists: awesome-mcp-servers, official MCP servers
- * - npm: mcp, claude-skill, ai-tool keywords
- * - Smithery registry
+ * Scans up to SCAN_LIMIT packages per run (default 200) to stay within time budget.
  */
 
 import { GcpScanStore } from '@safeskill/scan-store/gcp';
@@ -18,9 +13,13 @@ import { packageToSlug } from '@safeskill/scan-store';
 import { discover } from './discover.js';
 import { scanAndStore } from './scanner.js';
 
-const CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY ?? '5', 10);
+const CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY ?? '10', 10);
+const SCAN_LIMIT = parseInt(process.env.SCAN_LIMIT ?? '10', 10);
+const TIME_BUDGET_MS = parseInt(process.env.TIME_BUDGET_MS ?? '2700000', 10); // 45 min default
 
 async function main() {
+  const startTime = Date.now();
+
   const store = new GcpScanStore({
     bucket: process.env.GCS_BUCKET ?? '',
     projectId: process.env.GCP_PROJECT ?? '',
@@ -36,7 +35,7 @@ async function main() {
 
   console.log('=== SafeSkill Daily Discovery ===');
   console.log(`Date: ${new Date().toISOString()}`);
-  console.log(`Concurrency: ${CONCURRENCY}`);
+  console.log(`Concurrency: ${CONCURRENCY} | Limit: ${SCAN_LIMIT} | Budget: ${TIME_BUDGET_MS / 60000}min`);
   console.log('');
 
   // 1. Discover new packages from all sources
@@ -56,18 +55,32 @@ async function main() {
     return;
   }
 
-  // 3. Scan new packages
-  console.log(`--- Phase 2: Scanning ${newPackages.length} packages ---`);
+  // 3. Take only up to SCAN_LIMIT packages per run
+  const toScan = newPackages.slice(0, SCAN_LIMIT);
+  if (newPackages.length > SCAN_LIMIT) {
+    console.log(`Capping to ${SCAN_LIMIT} packages this run (${newPackages.length - SCAN_LIMIT} deferred to next run)`);
+  }
+
+  // 4. Scan
+  console.log(`--- Phase 2: Scanning ${toScan.length} packages ---`);
   let scanned = 0;
   let failed = 0;
   let prsCreated = 0;
+  let skippedTimeBudget = 0;
 
-  for (let i = 0; i < newPackages.length; i += CONCURRENCY) {
-    const batch = newPackages.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(
+  for (let i = 0; i < toScan.length; i += CONCURRENCY) {
+    // Check time budget
+    const elapsed = Date.now() - startTime;
+    if (elapsed > TIME_BUDGET_MS) {
+      skippedTimeBudget = toScan.length - i;
+      console.log(`\nTime budget exceeded (${(elapsed / 60000).toFixed(1)}min). Skipping remaining ${skippedTimeBudget} packages.`);
+      break;
+    }
+
+    const batch = toScan.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(
       batch.map(async (pkg) => {
         const idx = i + batch.indexOf(pkg) + 1;
-        console.log(`[${idx}/${newPackages.length}] Scanning ${pkg.name} (${pkg.source})...`);
         const start = Date.now();
 
         const result = await scanAndStore({
@@ -83,14 +96,16 @@ async function main() {
           scanned++;
           const prInfo = result.prUrl ? ` | PR: ${result.prUrl}` : '';
           if (result.prUrl) prsCreated++;
-          console.log(`  ✓ ${pkg.name} → ${result.score}/100 [${elapsed}s]${prInfo}`);
+          console.log(`  [${idx}/${toScan.length}] ✓ ${pkg.name} → ${result.score}/100 [${elapsed}s]${prInfo}`);
         } else {
           failed++;
-          console.log(`  ✗ ${pkg.name} → ${result.error} [${elapsed}s]`);
+          console.log(`  [${idx}/${toScan.length}] ✗ ${pkg.name} → ${result.error?.slice(0, 60)} [${elapsed}s]`);
         }
       }),
     );
   }
+
+  const totalElapsed = ((Date.now() - startTime) / 60000).toFixed(1);
 
   console.log('');
   console.log('--- Summary ---');
@@ -99,7 +114,10 @@ async function main() {
   console.log(`Scanned: ${scanned}`);
   console.log(`Failed: ${failed}`);
   console.log(`PRs created: ${prsCreated}`);
+  console.log(`Skipped (time budget): ${skippedTimeBudget}`);
+  console.log(`Deferred to next run: ${Math.max(0, newPackages.length - SCAN_LIMIT)}`);
   console.log(`Total in registry: ${existingSlugs.size + scanned}`);
+  console.log(`Elapsed: ${totalElapsed}min`);
 }
 
 main().catch((e) => {

@@ -3,6 +3,7 @@ import { handleStatus } from './routes/status.js';
 import { handleBatchScan } from './routes/batch.js';
 import { handleBrowse } from './routes/browse.js';
 import { handleScanned } from './routes/scanned.js';
+import { handleBadge } from './routes/badge.js';
 
 export interface Env {
   GCS_BUCKET: string;
@@ -68,6 +69,12 @@ export default {
       // GET /api/scanned — lightweight map of all scanned packages
       if (path === '/api/scanned' && request.method === 'GET') {
         return handleScanned(env);
+      }
+
+      // GET /api/badge/:slug — SVG badge image
+      const badgeMatch = path.match(/^\/api\/badge\/([a-z0-9\-._]+)$/i);
+      if (badgeMatch && request.method === 'GET') {
+        return handleBadge(badgeMatch[1], env);
       }
 
       // Health
