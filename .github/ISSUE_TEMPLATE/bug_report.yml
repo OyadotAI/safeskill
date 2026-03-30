@@ -1,0 +1,46 @@
+name: Bug report
+description: Something is broken or incorrect
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. **Do not** report security vulnerabilities here — use the process in `SECURITY.md` at the repo root.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong in one or two sentences?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, URLs, package names, or minimal steps we can follow.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / environment (if known)
+      description: e.g. CLI version, browser, OS, commit SHA
+  - type: textarea
+    id: extras
+    attributes:
+      label: Logs / screenshots
+      description: Optional — redact secrets before pasting.

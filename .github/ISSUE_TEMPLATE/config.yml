@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://safeskill.dev/docs
+    about: Usage and product documentation
+  - name: Website
+    url: https://safeskill.dev
+    about: SafeSkill home and browse the skills index

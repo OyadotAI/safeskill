@@ -44,6 +44,9 @@ export const SCORE_WEIGHTS = {
 // Any single CRITICAL prompt injection = cap score at this
 export const CRITICAL_PROMPT_INJECTION_CAP = 30;
 
+// Critical/high dependency vulnerabilities = cap score
+export const CRITICAL_DEPENDENCY_CAP = 50;
+
 // --- Severity weights for score deductions ---
 export const SEVERITY_MULTIPLIER: Record<Severity, number> = {
   critical: 1.0,

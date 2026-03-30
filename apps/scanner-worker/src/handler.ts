@@ -52,7 +52,7 @@ app.post('/scan', async (req, res) => {
       dir: resolved.dir,
       packageName: resolved.packageName,
       packageVersion: resolved.packageVersion ?? undefined,
-      skipDeps: true,
+      skipDeps: false,
     });
 
     // Store result in GCS + Firestore

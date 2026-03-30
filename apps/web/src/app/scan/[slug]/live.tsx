@@ -19,10 +19,32 @@ function slugToPackageGuesses(slug: string): string[] {
       const scope = parts.slice(0, i).join('-');
       const name = parts.slice(i).join('-');
       guesses.push(`@${scope}/${name}`);
+      guesses.push(`${scope}/${name}`);  // GitHub owner/repo
     }
   }
   guesses.push(slug);
   return guesses;
+}
+
+async function pollJob(
+  jobId: string,
+  signal: AbortSignal,
+  onStatus: (s: ScanStatus) => void,
+): Promise<'completed' | 'failed'> {
+  while (!signal.aborted) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (signal.aborted) return 'failed';
+    try {
+      const res = await fetch(`${API_BASE}/api/scan-status/${jobId}`);
+      const data = await res.json();
+      if (data.status === 'scanning') onStatus('scanning');
+      else if (data.status === 'completed') return 'completed';
+      else if (data.status === 'failed') return 'failed';
+    } catch {
+      // keep polling
+    }
+  }
+  return 'failed';
 }
 
 type ScanStatus = 'resolving' | 'queued' | 'scanning' | 'completed' | 'failed';
@@ -39,13 +61,13 @@ export function LiveScanBySlug({ slug, packageName, forceRescan }: { slug: strin
   const [result, setResult] = useState<ScanResult | null>(null);
   const [status, setStatus] = useState<ScanStatus>('resolving');
   const [error, setError] = useState('');
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [isRescan, setIsRescan] = useState(forceRescan ?? false);
 
   const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
     }
   }, []);
 
@@ -53,6 +75,9 @@ export function LiveScanBySlug({ slug, packageName, forceRescan }: { slug: strin
     setStatus('resolving');
     setError('');
     stopPolling();
+
+    const abort = new AbortController();
+    abortRef.current = abort;
 
     // 1. Try fetching cached result (skip if rescan requested)
     if (!isRescan) {
@@ -71,10 +96,12 @@ export function LiveScanBySlug({ slug, packageName, forceRescan }: { slug: strin
       }
     }
 
-    // 2. Trigger a scan (with rescan flag if forced)
+    // 2. Try each guess sequentially — if a queued job fails, try the next guess
     const guesses = packageName ? [packageName] : slugToPackageGuesses(slug);
 
     for (const pkg of guesses) {
+      if (abort.signal.aborted) return;
+
       try {
         const res = await fetch(`${API_BASE}/api/scan`, {
           method: 'POST',
@@ -91,37 +118,23 @@ export function LiveScanBySlug({ slug, packageName, forceRescan }: { slug: strin
         }
 
         if (res.status === 202 && data.jobId) {
-          // Queued — start polling
           setStatus('queued');
-          const jobId = data.jobId as string;
+          const jobResult = await pollJob(data.jobId as string, abort.signal, setStatus);
 
-          pollingRef.current = setInterval(async () => {
-            try {
-              const statusRes = await fetch(`${API_BASE}/api/scan-status/${jobId}`);
-              const statusData = await statusRes.json();
+          if (abort.signal.aborted) return;
 
-              if (statusData.status === 'scanning') {
-                setStatus('scanning');
-              } else if (statusData.status === 'completed') {
-                stopPolling();
-                // Fetch the full result
-                const resultRes = await fetch(`${API_BASE}/api/scan/${slug}`);
-                if (resultRes.ok) {
-                  const scanResult = await resultRes.json() as ScanResult;
-                  setResult(scanResult);
-                  setStatus('completed');
-                }
-              } else if (statusData.status === 'failed') {
-                stopPolling();
-                setError(statusData.error ?? 'Scan failed');
-                setStatus('failed');
-              }
-            } catch {
-              // Polling error — keep trying
+          if (jobResult === 'completed') {
+            const resultRes = await fetch(`${API_BASE}/api/scan/${slug}?t=${Date.now()}`, { cache: 'no-store' });
+            if (resultRes.ok) {
+              const scanResult = await resultRes.json() as ScanResult;
+              setResult(scanResult);
+              setStatus('completed');
+              return;
             }
-          }, 3000);
-
-          return;
+          }
+          // Job failed — try next guess
+          setStatus('resolving');
+          continue;
         }
 
         // If 400/404, try next guess
@@ -131,7 +144,7 @@ export function LiveScanBySlug({ slug, packageName, forceRescan }: { slug: strin
       }
     }
 
-    setError(`Could not find package for "${slug}" on npm`);
+    setError(`Could not find package for "${slug}" on npm or GitHub`);
     setStatus('failed');
   }, [slug, packageName, isRescan, stopPolling]);
 

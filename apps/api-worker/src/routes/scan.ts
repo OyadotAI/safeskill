@@ -27,7 +27,7 @@ export async function handleScan(slug: string, env: Env): Promise<Response> {
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'public, max-age=3600',
       },
     });
   }

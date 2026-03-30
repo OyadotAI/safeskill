@@ -10,6 +10,7 @@ import {
   SCORE_WEIGHTS,
   SEVERITY_MULTIPLIER,
   CRITICAL_PROMPT_INJECTION_CAP,
+  CRITICAL_DEPENDENCY_CAP,
 } from '@safeskill/shared';
 import type { PackageType } from '../analyzers/manifest-analyzer.js';
 
@@ -126,6 +127,24 @@ export function calculateScore(
   // Combined: critical prompt + critical taint = absolute blocked (any package type)
   if (criticalPrompts.length >= 1 && criticalTaints.length >= 1) {
     overallScore = Math.min(overallScore, 20);
+  }
+
+  // Dependency vulnerability caps — critical/high npm audit findings
+  const criticalDeps = codeFindings.filter(f =>
+    f.category === 'dynamic-require' &&
+    f.description.includes('vulnerability') &&
+    (f.severity === 'critical' || f.severity === 'high')
+  );
+  if (criticalDeps.length >= 1) {
+    overallScore = Math.min(overallScore, CRITICAL_DEPENDENCY_CAP);
+  }
+
+  // npm security holding packages — known-malicious, taken down by npm
+  const securityHolder = codeFindings.some(f =>
+    f.description.includes('removed by npm for security reasons')
+  );
+  if (securityHolder) {
+    overallScore = Math.min(overallScore, 10);
   }
 
   overallScore = clamp(overallScore, 0, 100);

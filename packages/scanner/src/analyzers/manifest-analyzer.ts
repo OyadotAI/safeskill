@@ -58,6 +58,25 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
   dependencies = (pkg.dependencies as Record<string, string>) ?? {};
   devDependencies = (pkg.devDependencies as Record<string, string>) ?? {};
 
+  // Detect npm security holding packages — these replaced known-malicious packages
+  const description = ((pkg.description as string) ?? '').toLowerCase();
+  const version = (pkg.version as string) ?? '';
+  const repo = typeof pkg.repository === 'string' ? pkg.repository : ((pkg.repository as Record<string, string>)?.url ?? '');
+  if (
+    description.includes('security holding package') ||
+    version.endsWith('-security') ||
+    repo === 'npm/security-holder'
+  ) {
+    findings.push({
+      category: 'install-scripts',
+      severity: 'critical',
+      location: { file: 'package.json', line: 0, column: 0 },
+      description: `This package was removed by npm for security reasons and replaced with a placeholder (version: ${version})`,
+      codeSnippet: `"description": "${pkg.description}"`,
+      confidence: 1.0,
+    });
+  }
+
   // Check install scripts
   const scripts = (pkg.scripts as Record<string, string>) ?? {};
   const dangerousScriptKeys = ['preinstall', 'postinstall', 'preuninstall', 'postuninstall', 'prepare'];

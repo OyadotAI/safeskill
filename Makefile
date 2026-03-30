@@ -95,10 +95,15 @@ scan-top: build ## Scan top N from marketplace index (usage: make scan-top N=100
 	$(PNPM) exec tsx scripts/scan-packages.ts --from-index $(N)
 	cp data/scan-results.json apps/web/src/data/scan-results.json
 
+test-1k: build ## Scan 1K random packages and report grades/findings
+	$(PNPM) exec tsx scripts/test-1k.ts
+
 # --- All-in-one ---
 setup: install build seed ## Full setup: install, build, crawl 10K+ skills
 
 release: build ## Build, deploy everything, and publish CLI to npm
+	@echo "\n\033[36m▸ Bumping CLI version...\033[0m"
+	cd packages/cli && npm version patch --no-git-tag-version
 	@echo "\n\033[36m▸ Deploying API worker...\033[0m"
 	cd apps/api-worker && npx wrangler deploy
 	@echo "\n\033[36m▸ Deploying web to Cloudflare Pages...\033[0m"

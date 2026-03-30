@@ -79,7 +79,48 @@ export function ScanReportClient({ result: initialResult }: { result: ScanResult
           </a>
         </div>
       </div>
+      {/* CLI command */}
+      <div className="rounded-2xl border border-gray-800/80 bg-gray-900/50 p-6 mb-8">
+        <p className="text-sm text-gray-400 mb-3">Run this scan yourself:</p>
+        <div className="rounded-lg bg-gray-950 border border-gray-800 p-4 font-mono text-sm">
+          <span className="text-emerald-400 select-none">$ </span>
+          <span className="text-gray-50">npx skillsafe scan {result.packageName}</span>
+        </div>
+      </div>
 
+      {/* Badge */}
+      <div className="rounded-2xl border border-gray-800/80 bg-gray-900/50 p-6 mb-8">
+        <p className="text-sm text-gray-400 mb-4">Add a safety badge to your README:</p>
+        {/* Badge preview */}
+        <div className="mb-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`${API_BASE}/api/badge/${packageToSlug(result.packageName)}`}
+            alt={`SafeSkill score for ${result.packageName}`}
+            height={20}
+          />
+        </div>
+        {/* Markdown */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">Markdown</span>
+            <CopyButton text={`[![SafeSkill](https://safeskill.dev/api/badge/${packageToSlug(result.packageName)})](https://safeskill.dev/scan/${packageToSlug(result.packageName)})`} />
+          </div>
+          <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 font-mono text-xs text-gray-400 overflow-x-auto">
+            [![SafeSkill](https://safeskill.dev/api/badge/{packageToSlug(result.packageName)})](https://safeskill.dev/scan/{packageToSlug(result.packageName)})
+          </div>
+        </div>
+        {/* HTML */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-500">HTML</span>
+            <CopyButton text={`<a href="https://safeskill.dev/scan/${packageToSlug(result.packageName)}"><img src="https://safeskill.dev/api/badge/${packageToSlug(result.packageName)}" alt="SafeSkill"></a>`} />
+          </div>
+          <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 font-mono text-xs text-gray-400 overflow-x-auto">
+            {'<a href="https://safeskill.dev/scan/'}{packageToSlug(result.packageName)}{'"><img src="https://safeskill.dev/api/badge/'}{packageToSlug(result.packageName)}{'" alt="SafeSkill"></a>'}
+          </div>
+        </div>
+      </div>
       {/* Score overview */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
         <div className="lg:col-span-1 rounded-2xl border border-gray-800/80 bg-gray-900/50 p-6 flex flex-col items-center justify-center">
@@ -212,49 +253,6 @@ export function ScanReportClient({ result: initialResult }: { result: ScanResult
           </div>
         </div>
       )}
-
-      {/* CLI command */}
-      <div className="rounded-2xl border border-gray-800/80 bg-gray-900/50 p-6 mb-8">
-        <p className="text-sm text-gray-400 mb-3">Run this scan yourself:</p>
-        <div className="rounded-lg bg-gray-950 border border-gray-800 p-4 font-mono text-sm">
-          <span className="text-emerald-400 select-none">$ </span>
-          <span className="text-gray-50">npx skillsafe scan {result.packageName}</span>
-        </div>
-      </div>
-
-      {/* Badge */}
-      <div className="rounded-2xl border border-gray-800/80 bg-gray-900/50 p-6 mb-8">
-        <p className="text-sm text-gray-400 mb-4">Add a safety badge to your README:</p>
-        {/* Badge preview */}
-        <div className="mb-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`${API_BASE}/api/badge/${packageToSlug(result.packageName)}`}
-            alt={`SafeSkill score for ${result.packageName}`}
-            height={20}
-          />
-        </div>
-        {/* Markdown */}
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">Markdown</span>
-            <CopyButton text={`[![SafeSkill](https://safeskill.dev/api/badge/${packageToSlug(result.packageName)})](https://safeskill.dev/scan/${packageToSlug(result.packageName)})`} />
-          </div>
-          <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 font-mono text-xs text-gray-400 overflow-x-auto">
-            [![SafeSkill](https://safeskill.dev/api/badge/{packageToSlug(result.packageName)})](https://safeskill.dev/scan/{packageToSlug(result.packageName)})
-          </div>
-        </div>
-        {/* HTML */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">HTML</span>
-            <CopyButton text={`<a href="https://safeskill.dev/scan/${packageToSlug(result.packageName)}"><img src="https://safeskill.dev/api/badge/${packageToSlug(result.packageName)}" alt="SafeSkill"></a>`} />
-          </div>
-          <div className="rounded-lg bg-gray-950 border border-gray-800 p-3 font-mono text-xs text-gray-400 overflow-x-auto">
-            {'<a href="https://safeskill.dev/scan/'}{packageToSlug(result.packageName)}{'"><img src="https://safeskill.dev/api/badge/'}{packageToSlug(result.packageName)}{'" alt="SafeSkill"></a>'}
-          </div>
-        </div>
-      </div>
 
       {/* Search another */}
       <div className="text-center">
