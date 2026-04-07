@@ -54,17 +54,19 @@ export function calculateScore(
   mismatches: MismatchFinding[],
   meta: ScoreInput,
 ): ScoreOutput {
-  // For CLI tools, filter out expected findings from dangerous API scoring
-  // CLI tools NEED child_process, fs, and env access — penalizing them is wrong
+  // For CLI tools and MCP servers, filter out expected findings from dangerous API scoring.
+  // CLI tools and MCP servers NEED child_process, fs, and env access — penalizing them is wrong.
   const isCli = meta.packageType === 'cli-tool';
-  const contextFindings = isCli
+  const isMcp = meta.packageType === 'mcp-server';
+  const isToolPackage = isCli || isMcp;
+  const contextFindings = isToolPackage
     ? codeFindings.filter(f => !CLI_EXPECTED_CATEGORIES.has(f.category))
     : codeFindings;
 
-  // Also reduce taint flow severity for CLI tools accessing their own config
-  const contextTaintFlows = isCli
+  // Also reduce taint flow severity for tool packages accessing their own config
+  const contextTaintFlows = isToolPackage
     ? taintFlows.filter(f => {
-        // CLI reading its own config dir is not exfiltration
+        // Tool reading its own config dir is not exfiltration
         const isOwnConfig = f.source.description.includes('readFile') &&
           !f.source.description.includes('.ssh') &&
           !f.source.description.includes('.aws') &&
@@ -119,9 +121,9 @@ export function calculateScore(
     overallScore = Math.min(overallScore, 60);
   }
 
-  // Taint flow caps — only apply to non-CLI packages.
-  // A CLI tool reading config and making HTTP requests is normal.
-  if (!isCli && criticalTaints.length >= 1) {
+  // Taint flow caps — only apply to non-tool packages.
+  // CLI tools and MCP servers reading config and making HTTP requests is normal.
+  if (!isToolPackage && criticalTaints.length >= 1) {
     overallScore = Math.min(overallScore, 50);
   }
 

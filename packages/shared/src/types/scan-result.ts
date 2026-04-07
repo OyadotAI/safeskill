@@ -101,6 +101,8 @@ export interface ScanResult {
   contentFilesScanned: number;
   dependencyCount: number;
   hasInstallScripts: boolean;
+  /** Detected package type — affects how findings are presented. */
+  packageType?: 'cli-tool' | 'mcp-server' | 'library' | 'skill' | 'unknown';
 }
 
 export interface ScoreBreakdown {

@@ -37,11 +37,13 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
     let description: string;
 
     if (isSensitiveVar(varName)) {
-      severity = 'critical';
-      description = `Accesses sensitive environment variable: ${varName}`;
+      // Reading a secret from process.env is standard practice, not a vulnerability.
+      // Only taint flows (exfiltration) should be critical.
+      severity = 'low';
+      description = `Reads sensitive environment variable from process.env: ${varName}`;
     } else {
-      severity = 'medium';
-      description = `Accesses environment variable: ${varName}`;
+      severity = 'info';
+      description = `Reads environment variable: ${varName}`;
     }
 
     findings.push({
@@ -69,11 +71,11 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       let description: string;
 
       if (isSensitiveVar(varName)) {
-        severity = 'critical';
-        description = `Accesses sensitive environment variable via bracket notation: ${varName}`;
+        severity = 'low';
+        description = `Reads sensitive environment variable from process.env: ${varName}`;
       } else {
-        severity = 'medium';
-        description = `Accesses environment variable via bracket notation: ${varName}`;
+        severity = 'info';
+        description = `Reads environment variable via bracket notation: ${varName}`;
       }
 
       findings.push({
@@ -114,7 +116,7 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       let description: string;
 
       if (hasSensitive) {
-        severity = 'critical';
+        severity = 'low';
         description = `Destructures sensitive vars from process.env: ${varNames.filter(isSensitiveVar).join(', ')}`;
       } else if (isBulk) {
         severity = 'high';

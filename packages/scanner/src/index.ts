@@ -104,6 +104,7 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
     contentFilesScanned: contentFiles.length,
     dependencyCount: depResults.dependencyCount,
     hasInstallScripts: manifestResults.hasInstallScripts,
+    packageType: manifestResults.packageType,
   };
 }
 

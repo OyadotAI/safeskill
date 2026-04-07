@@ -94,10 +94,27 @@ export function printReport(result: ScanResult): void {
   console.log('');
 
   // Detailed findings (top 10)
+  // Filter out expected findings for tool packages and test fixtures from the display
+  const CLI_EXPECTED_CATEGORIES = new Set(['process-spawn', 'filesystem-access', 'env-access']);
+  const isCli = result.packageType === 'cli-tool';
+  const isMcp = result.packageType === 'mcp-server';
+  const isToolPackage = isCli || isMcp;
+
   const allFindings = [
     ...result.codeFindings.map(f => ({ ...f, type: 'code' as const })),
     ...result.promptFindings.map(f => ({ ...f, type: 'prompt' as const })),
-  ].sort((a, b) => severityOrder(b.severity) - severityOrder(a.severity));
+  ]
+    .filter(f => !f.isTestFixture)
+    .filter(f => !(isToolPackage && 'category' in f && CLI_EXPECTED_CATEGORIES.has(f.category as string)))
+    .sort((a, b) => severityOrder(b.severity) - severityOrder(a.severity));
+
+  if (isCli) {
+    console.log(chalk.dim('  ℹ CLI tool detected — process-spawn, filesystem, and env-access findings are expected and excluded.'));
+    console.log('');
+  } else if (isMcp) {
+    console.log(chalk.dim('  ℹ MCP server detected — process-spawn, filesystem, and env-access findings are expected and excluded.'));
+    console.log('');
+  }
 
   if (allFindings.length > 0) {
     console.log(chalk.bold('  Top Findings:'));

@@ -52,9 +52,21 @@ function snippetAt(content: string, index: number, length: number): string {
 }
 
 /**
+ * Check if match is in a code block (``` fenced) — code examples are not instructions.
+ */
+function isInsideCodeBlock(content: string, matchIndex: number): boolean {
+  const before = content.slice(0, matchIndex);
+  const fenceCount = (before.match(/```/g) || []).length;
+  return fenceCount % 2 === 1; // odd = inside a code block
+}
+
+/**
  * Check if a match is in a documentation/descriptive context (not an instruction).
  */
 function isDocumentationContext(content: string, matchIndex: number): boolean {
+  // Code blocks contain examples, not instructions
+  if (isInsideCodeBlock(content, matchIndex)) return true;
+
   // Look at ~500 chars before and the line containing the match
   const before = content.slice(Math.max(0, matchIndex - 500), matchIndex).toLowerCase();
   const lineStart = content.lastIndexOf('\n', matchIndex) + 1;

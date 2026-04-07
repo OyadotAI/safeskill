@@ -23,7 +23,14 @@ export async function discoverContent(dir: string): Promise<ContentFile[]> {
   const contentGlobs = [...CONTENT_FILE_PATTERNS];
   const files = await globby(contentGlobs, {
     cwd: dir,
-    ignore: ['node_modules/**', 'dist/**', '.git/**', 'CHANGELOG.md', 'CHANGELOG/**'],
+    ignore: [
+      'node_modules/**', 'dist/**', '.git/**',
+      'CHANGELOG.md', 'CHANGELOG/**',
+      // License files contain standard legal text — not security-relevant content
+      'LICENSE', 'LICENSE.*', 'LICENCE', 'LICENCE.*',
+      'LICENSES/**', 'LICENCES/**',
+      '**/LICENSE', '**/LICENSE.*',
+    ],
     absolute: false,
   });
 

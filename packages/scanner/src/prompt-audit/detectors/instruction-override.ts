@@ -46,6 +46,18 @@ function isInTechnicalContext(content: string, matchIndex: number): boolean {
   return techIndicators.filter(p => p.test(nearby)).length >= 2;
 }
 
+/**
+ * Check if a "SYSTEM:" match is mid-sentence (i.e. preceded by non-trivial text
+ * on the same line).  Real prompt injection places "SYSTEM:" at the start of a
+ * line; mid-sentence occurrences like "error type for the entire system:" are
+ * always documentation prose.
+ */
+function isMidSentenceSystemMarker(content: string, matchIndex: number): boolean {
+  const lineStart = content.lastIndexOf('\n', matchIndex - 1) + 1;
+  const textBefore = content.slice(lineStart, matchIndex).trim();
+  return textBefore.length > 0;
+}
+
 function isInsideBenignSection(content: string, matchIndex: number): boolean {
   if (isInsideCodeBlock(content, matchIndex)) return true;
   if (isInTechnicalContext(content, matchIndex)) return true;
@@ -90,6 +102,12 @@ export function detect(
     let match: RegExpExecArray | null;
 
     while ((match = globalRe.exec(content)) !== null) {
+      // Skip "system:" that appears mid-sentence — it's documentation prose,
+      // not a prompt injection marker (e.g. "error type for the entire system:")
+      if (technique === 'instruction-pattern' && /\bSYSTEM\s*:/i.test(match[0]) && isMidSentenceSystemMarker(content, match.index)) {
+        continue;
+      }
+
       const { line, column } = lineColFromIndex(content, match.index);
       const benign = isInsideBenignSection(content, match.index);
 

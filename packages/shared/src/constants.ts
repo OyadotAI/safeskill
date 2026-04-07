@@ -226,11 +226,30 @@ export const TEST_FIXTURE_GLOBS = [
   '__mocks__/**',
   '**/security-audit/**',
   '**/test-fixtures/**',
+  'eval/**',
+  'evals/**',
+  'benchmarks/**',
+  'prompts/**',
+  '**/prompts/**',
+  '**/prompt-templates/**',
+  '**/prompt_templates/**',
+  'scripts/**',
 ] as const;
 
 /**
+ * File name patterns that indicate a test file regardless of directory.
+ */
+const TEST_FILE_PATTERNS = [
+  /^test[-_]/, // test-foo.js, test_foo.js
+  /[-_]test\.[^/]+$/, // foo-test.js, foo_test.ts
+  /\.test\.[^/]+$/, // foo.test.js
+  /\.spec\.[^/]+$/, // foo.spec.js
+  /^spec[-_]/, // spec-foo.js
+];
+
+/**
  * Returns true if a relative file path falls inside a recognised
- * test / fixture / golden directory.
+ * test / fixture / golden directory, or matches a test file name pattern.
  */
 export function isTestFixturePath(relPath: string): boolean {
   const normalized = relPath.replace(/\\/g, '/');
@@ -241,9 +260,18 @@ export function isTestFixturePath(relPath: string): boolean {
     '__snapshots__', 'fixtures', 'goldens',
     'testdata', 'test-data', '__mocks__',
     'security-audit', 'test-fixtures',
+    // Prompt engineering and evaluation directories — instruction-like content is expected
+    'eval', 'evals', 'benchmarks', 'prompts',
+    'prompt-templates', 'prompt_templates',
+    // Build/dev scripts — not runtime code
+    'scripts',
   ]);
 
-  return segments.some(seg => testDirs.has(seg));
+  if (segments.some(seg => testDirs.has(seg))) return true;
+
+  // Check the file name itself for test patterns
+  const fileName = segments[segments.length - 1] ?? '';
+  return TEST_FILE_PATTERNS.some(re => re.test(fileName));
 }
 
 /**

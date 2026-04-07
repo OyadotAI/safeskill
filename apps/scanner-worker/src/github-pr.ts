@@ -54,6 +54,78 @@ function buildBadgeMarkdown(slug: string, result: ScanResult): string {
   return `[![SafeSkill ${result.overallScore}/100](https://img.shields.io/badge/SafeSkill-${result.overallScore}%2F100_${encodeURIComponent(label)}-${color})](https://safeskill.dev/scan/${slug})`;
 }
 
+/**
+ * Find a safe insertion point for a badge in a README.
+ *
+ * Strategy (in priority order):
+ * 1. Append to an existing badge row (lines with [![ patterns)
+ * 2. After a closing </div> that wraps the header (centered hero blocks)
+ * 3. After the first blank line following the first markdown heading
+ * 4. -1 if nothing works (caller appends a section at the end)
+ */
+function findBadgeInsertionPoint(content: string): number {
+  const lines = content.split('\n');
+
+  // Strategy 1: Find the last line in a badge cluster and insert after it.
+  // A badge line contains [![ (markdown image-link) or shields.io / img.shields.io.
+  let lastBadgeLineEnd = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (/\[!\[.*\]\(.*\)\]/.test(line) || /img\.shields\.io/.test(line)) {
+      lastBadgeLineEnd = lines.slice(0, i + 1).join('\n').length + 1; // +1 for the \n
+    } else if (lastBadgeLineEnd > 0 && line.trim() !== '') {
+      // Non-badge, non-empty line after badges — stop here
+      break;
+    }
+  }
+  if (lastBadgeLineEnd > 0) return lastBadgeLineEnd;
+
+  // Strategy 2: If the README starts with an HTML block (e.g. <div align="center">),
+  // insert after the closing tag at the top level.
+  const openDivMatch = content.match(/^<div[\s>]/im);
+  if (openDivMatch && (openDivMatch.index ?? 0) < 10) {
+    // Find the matching </div>
+    let depth = 0;
+    const divOpenRe = /<div[\s>]/gi;
+    const divCloseRe = /<\/div\s*>/gi;
+    // Merge all div open/close positions and walk them
+    const events: Array<{ index: number; type: 'open' | 'close' }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = divOpenRe.exec(content)) !== null) events.push({ index: m.index, type: 'open' });
+    while ((m = divCloseRe.exec(content)) !== null) events.push({ index: m.index, type: 'close' });
+    events.sort((a, b) => a.index - b.index);
+
+    for (const ev of events) {
+      if (ev.type === 'open') depth++;
+      else depth--;
+      if (depth === 0) {
+        // Insert after this </div> + newline
+        const afterClose = content.indexOf('\n', ev.index);
+        if (afterClose > 0) return afterClose + 1;
+        return ev.index + 6; // length of </div>
+      }
+    }
+  }
+
+  // Strategy 3: After the first blank line following a markdown heading.
+  const headingMatch = content.match(/^#{1,6}\s+.+$/m);
+  if (headingMatch && headingMatch.index !== undefined) {
+    const afterHeading = content.indexOf('\n', headingMatch.index + headingMatch[0].length);
+    if (afterHeading > 0) {
+      // Find the next blank line
+      const rest = content.slice(afterHeading);
+      const blankLineMatch = rest.match(/\n\s*\n/);
+      if (blankLineMatch && blankLineMatch.index !== undefined) {
+        return afterHeading + blankLineMatch.index + blankLineMatch[0].length;
+      }
+      // No blank line — insert right after the heading line
+      return afterHeading + 1;
+    }
+  }
+
+  return -1;
+}
+
 function buildPRBody(slug: string, result: ScanResult): string {
   const emoji = getGradeEmoji(result.overallScore);
   const label = getGradeLabel(result.overallScore);
@@ -76,19 +148,43 @@ function buildPRBody(slug: string, result: ScanResult): string {
   body += `| Scan Duration | ${(result.duration / 1000).toFixed(1)}s |\n\n`;
 
   if (totalFindings > 0) {
-    body += `### Top Findings\n\n`;
-    const top = [...result.codeFindings, ...result.promptFindings]
+    // For CLI tools, filter out expected findings (process-spawn, filesystem-access, env-access)
+    // from the Top Findings display — same logic the scoring calculator uses
+    const CLI_EXPECTED_CATEGORIES = new Set(['process-spawn', 'filesystem-access', 'env-access']);
+    const isCli = result.packageType === 'cli-tool';
+
+    const isMcp = result.packageType === 'mcp-server';
+    const isToolPackage = isCli || isMcp;
+
+    const allFindings = [...result.codeFindings, ...result.promptFindings]
+      // Always filter out test fixture findings from Top Findings display
+      .filter(f => !f.isTestFixture);
+
+    const displayFindings = isToolPackage
+      ? allFindings.filter(f => !('category' in f && CLI_EXPECTED_CATEGORIES.has(f.category)))
+      : allFindings;
+
+    if (isCli) {
+      body += `> **Note:** This package is a **CLI tool** — \`child_process\`, filesystem, and environment access are expected capabilities and are excluded from scoring and top findings.\n\n`;
+    } else if (isMcp) {
+      body += `> **Note:** This package is an **MCP server** — \`child_process\`, filesystem, and environment access are expected capabilities for tool servers and are excluded from scoring and top findings.\n\n`;
+    }
+
+    const top = displayFindings
       .sort((a, b) => {
         const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
         return (sevOrder[a.severity] ?? 5) - (sevOrder[b.severity] ?? 5);
       })
       .slice(0, 5);
 
-    for (const f of top) {
-      const sevEmoji = f.severity === 'critical' ? '🔴' : f.severity === 'high' ? '🟠' : f.severity === 'medium' ? '🟡' : '⚪';
-      body += `- ${sevEmoji} **${f.severity}**: ${f.description} (\`${f.location.file}:${f.location.line}\`)\n`;
+    if (top.length > 0) {
+      body += `### Top Findings\n\n`;
+      for (const f of top) {
+        const sevEmoji = f.severity === 'critical' ? '🔴' : f.severity === 'high' ? '🟠' : f.severity === 'medium' ? '🟡' : '⚪';
+        body += `- ${sevEmoji} **${f.severity}**: ${f.description} (\`${f.location.file}:${f.location.line}\`)\n`;
+      }
+      body += '\n';
     }
-    body += '\n';
   }
 
   body += `[View full report on SafeSkill](https://safeskill.dev/scan/${slug})\n\n`;
@@ -192,13 +288,12 @@ export async function createScanPR(
         console.log('SafeSkill badge already exists in README, skipping PR');
         return null;
       }
-      // Add badge after the first heading
-      const firstHeadingEnd = readmeContent.indexOf('\n', readmeContent.indexOf('# '));
-      if (firstHeadingEnd > 0) {
-        const badge = buildBadgeMarkdown(slug, result);
-        updatedContent = readmeContent.slice(0, firstHeadingEnd + 1) +
-          `\n${badge}\n` +
-          readmeContent.slice(firstHeadingEnd + 1);
+      const badge = buildBadgeMarkdown(slug, result);
+      const insertIndex = findBadgeInsertionPoint(readmeContent);
+      if (insertIndex >= 0) {
+        updatedContent = readmeContent.slice(0, insertIndex) +
+          `${badge}\n` +
+          readmeContent.slice(insertIndex);
       } else {
         updatedContent = readmeContent + buildReadmeBadgeSection(slug, result);
       }
@@ -215,7 +310,7 @@ export async function createScanPR(
       {
         method: 'PUT',
         body: JSON.stringify({
-          message: `Add SafeSkill security badge (${result.overallScore}/100)`,
+          message: `Add SafeSkill security badge (${result.overallScore}/100)\n\nSigned-off-by: SafeSkill Scanner <mk@oya.ai>`,
           content: Buffer.from(updatedContent).toString('base64'),
           branch: branchName,
           ...(readmeSha ? { sha: readmeSha } : {}),

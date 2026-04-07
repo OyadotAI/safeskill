@@ -132,6 +132,12 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
     if (trimmed.startsWith('export ')) continue;
 
     if (line.length > 500) {
+      // Skip long string literal assignments — system prompts, templates, etc.
+      // These are common in constants files and are not obfuscation.
+      if (/^\s*(?:const|let|var|export\s+(?:const|let|var))\s+\w+\s*=\s*['"`]/.test(trimmed)) continue;
+      // Also skip lines that are predominantly a string (array of strings, object values)
+      if (/^\s*['"`]/.test(trimmed) || /^\s*\[?\s*['"`]/.test(trimmed)) continue;
+
       findings.push({
         category: 'obfuscation',
         severity: 'critical',

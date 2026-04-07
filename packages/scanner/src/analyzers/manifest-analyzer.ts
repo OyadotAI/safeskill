@@ -1,6 +1,32 @@
-import { readFile } from 'fs/promises';
+import { readFile, access } from 'fs/promises';
 import path from 'path';
 import type { CodeFinding } from '@safeskill/shared';
+
+/** Files whose presence indicates a non-JavaScript/TypeScript project. */
+const NON_JS_PROJECT_MARKERS = [
+  'pyproject.toml',
+  'setup.py',
+  'requirements.txt',
+  'Cargo.toml',
+  'go.mod',
+  'pom.xml',
+  'build.gradle',
+  'Gemfile',
+  'mix.exs',
+  'composer.json',
+];
+
+async function isNonJsProject(dir: string): Promise<boolean> {
+  for (const marker of NON_JS_PROJECT_MARKERS) {
+    try {
+      await access(path.join(dir, marker));
+      return true;
+    } catch {
+      // file doesn't exist, continue
+    }
+  }
+  return false;
+}
 
 /** Detected package type — affects scoring expectations. */
 export type PackageType = 'cli-tool' | 'mcp-server' | 'library' | 'skill' | 'unknown';
@@ -44,14 +70,17 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
     const raw = await readFile(path.join(dir, 'package.json'), 'utf-8');
     pkg = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    findings.push({
-      category: 'install-scripts',
-      severity: 'medium',
-      location: { file: 'package.json', line: 0, column: 0 },
-      description: 'Missing or invalid package.json',
-      codeSnippet: '',
-      confidence: 1.0,
-    });
+    // Only flag missing package.json for JavaScript/TypeScript projects
+    if (!(await isNonJsProject(dir))) {
+      findings.push({
+        category: 'install-scripts',
+        severity: 'medium',
+        location: { file: 'package.json', line: 0, column: 0 },
+        description: 'Missing or invalid package.json',
+        codeSnippet: '',
+        confidence: 1.0,
+      });
+    }
     return { findings, hasInstallScripts, hasSkillManifest, hasReadme, hasRepository, hasTypes, dependencies, devDependencies, packageType: 'unknown' as PackageType };
   }
 
