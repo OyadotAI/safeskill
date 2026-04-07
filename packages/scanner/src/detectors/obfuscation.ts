@@ -54,12 +54,25 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
     }
   }
 
+  // Collect locally declared variable and parameter names so we don't confuse
+  // a local `window` array (etc.) with the browser global.
+  const localDeclarations = new Set<string>();
+  for (const decl of sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    localDeclarations.add(decl.getName());
+  }
+  for (const param of sourceFile.getDescendantsOfKind(SyntaxKind.Parameter)) {
+    localDeclarations.add(param.getName());
+  }
+
   // Detect bracket notation access to dangerous objects: process['env'], require['resolve'], etc.
   for (const access of sourceFile.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
     const obj = access.getExpression();
     const objText = obj.getText();
 
     if (!DANGEROUS_BRACKET_TARGETS.has(objText)) continue;
+
+    // Skip if this name is a locally declared variable/parameter, not the global
+    if (localDeclarations.has(objText)) continue;
 
     const arg = access.getArgumentExpression();
     if (!arg) continue;

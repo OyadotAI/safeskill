@@ -1,3 +1,4 @@
+import path from 'path';
 import type { TaintFlow, Severity } from '@safeskill/shared';
 import type { FileAnalysis, CallInfo, ImportInfo } from './ast-analyzer.js';
 import { DANGEROUS_MODULES, SENSITIVE_PATHS, SENSITIVE_ENV_VARS } from '@safeskill/shared';
@@ -139,15 +140,21 @@ export function trackTaint(fileAnalyses: FileAnalysis[]): TaintFlow[] {
   // Check if sink-files import from source-files (cross-file exfiltration)
   for (const sinkFile of filesWithSinks) {
     for (const imp of sinkFile.file.imports) {
-      // Check if this import points to a file that has sources
-      const importPath = imp.module.replace(/^\.\/|\.ts$|\.js$|\.mjs$/g, '');
+      // Only relative imports can reference local source files
+      if (!imp.module.startsWith('.')) continue;
+
+      // Resolve import path relative to the importing file's directory
+      const sinkDir = path.dirname(sinkFile.file.filePath);
+      const resolvedImport = path.join(sinkDir, imp.module).replace(/\\/g, '/');
+      const normalizedImport = resolvedImport.replace(/\.(ts|js|mjs|cjs)$/, '');
 
       for (const sourceFile of filesWithSources) {
         if (sinkFile.file.filePath === sourceFile.file.filePath) continue;
 
-        const sourceName = sourceFile.file.filePath.replace(/\.ts$|\.js$|\.mjs$/g, '');
-        const matches = sourceName.endsWith(importPath) ||
-          importPath.endsWith(sourceName.split('/').pop()!.replace(/\.\w+$/, ''));
+        const normalizedSource = sourceFile.file.filePath.replace(/\.(ts|js|mjs|cjs)$/, '');
+        // Strict match: resolved import must equal source path or source/index
+        const matches = normalizedSource === normalizedImport ||
+          normalizedSource === `${normalizedImport}/index`;
 
         if (!matches) continue;
 
