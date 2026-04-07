@@ -44,8 +44,25 @@ function hasTemplateOrConcatInArgs(call: ReturnType<SourceFile['getDescendantsOf
   return false;
 }
 
+function hasChildProcessImport(sourceFile: SourceFile): boolean {
+  for (const decl of sourceFile.getImportDeclarations()) {
+    if (CHILD_PROCESS_MODULES.has(decl.getModuleSpecifierValue())) return true;
+  }
+  for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const expr = call.getExpression();
+    if (expr.getKind() !== SyntaxKind.Identifier || expr.getText() !== 'require') continue;
+    const args = call.getArguments();
+    if (args.length === 0) continue;
+    const firstArg = args[0]!;
+    if (firstArg.getKind() !== SyntaxKind.StringLiteral) continue;
+    if (CHILD_PROCESS_MODULES.has(firstArg.getText().slice(1, -1))) return true;
+  }
+  return false;
+}
+
 export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
   const findings: CodeFinding[] = [];
+  const fileImportsChildProcess = hasChildProcessImport(sourceFile);
 
   // Check imports of child_process / vm
   for (const decl of sourceFile.getImportDeclarations()) {
@@ -132,6 +149,12 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
     const methodName = parts[parts.length - 1]!;
 
     if (SPAWN_METHODS.has(methodName)) {
+      // 'exec' is ambiguous — RegExp.exec(), ioredis Pipeline.exec(), etc.
+      // Only flag receiver-qualified .exec() calls if the file imports child_process.
+      if (methodName === 'exec' && parts.length > 1 && !fileImportsChildProcess) {
+        continue;
+      }
+
       const hasInjectionRisk = hasTemplateOrConcatInArgs(call);
 
       let description = `Spawns child process: ${methodName}()`;

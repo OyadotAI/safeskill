@@ -95,6 +95,9 @@ const CALL_CATEGORY_MAP: Record<string, DetectorCategory> = {
 function getCategoryForCall(expression: string): DetectorCategory | null {
   const parts = expression.split('.');
   const method = parts[parts.length - 1]!;
+  // 'exec' is ambiguous (RegExp.exec, Pipeline.exec, etc.)
+  // Only categorize as process-spawn when it's a bare exec() call.
+  if (method === 'exec' && parts.length > 1) return null;
   return CALL_CATEGORY_MAP[method] ?? null;
 }
 
