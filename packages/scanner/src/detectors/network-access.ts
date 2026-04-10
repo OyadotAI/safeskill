@@ -16,17 +16,17 @@ const NETWORK_CALL_PATTERNS = new Set([
   'delete',
 ]);
 
+/**
+ * Outbound network calls — these SEND data to remote hosts.
+ * These are relevant for exfiltration detection when combined with fs access.
+ */
 const QUALIFIED_NETWORK_CALLS = new Set([
   'http.request',
   'http.get',
   'https.request',
   'https.get',
-  'http.createServer',
-  'https.createServer',
   'net.createConnection',
   'net.connect',
-  'net.createServer',
-  'dgram.createSocket',
   'axios.get',
   'axios.post',
   'axios.put',
@@ -38,6 +38,17 @@ const QUALIFIED_NETWORK_CALLS = new Set([
   'got.put',
   'got.patch',
   'got.delete',
+]);
+
+/**
+ * Server-side listeners — these ACCEPT incoming connections.
+ * Not exfiltration vectors. Flagged at lower severity as informational.
+ */
+const SERVER_LISTENER_CALLS = new Set([
+  'http.createServer',
+  'https.createServer',
+  'net.createServer',
+  'dgram.createSocket',
 ]);
 
 const SAFE_URL_HOSTS = new Set([
@@ -113,6 +124,20 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
   for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const exprText = call.getExpression().getText();
 
+    // Server listeners (http.createServer, net.createServer) accept incoming
+    // connections — they are NOT outbound exfiltration vectors.
+    if (SERVER_LISTENER_CALLS.has(exprText)) {
+      findings.push({
+        category: 'network-access',
+        severity: 'low',
+        location: getLocation(sourceFile, call.getStart(), relPath),
+        description: `Creates local server: ${exprText}()`,
+        codeSnippet: truncate(call.getText().trim(), 120),
+        confidence: 1.0,
+      });
+      continue;
+    }
+
     let isNetworkCall = false;
     let description = '';
 
@@ -129,14 +154,17 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
 
     if (!isNetworkCall) continue;
 
-    // Check if it contains a URL with external host
+    // Check if the URL targets a safe/local host
     let hasExternalUrl = false;
+    let targetsLocalhost = false;
     for (const arg of call.getArguments()) {
       const argText = arg.getText();
       const urlMatch = argText.match(/https?:\/\/([^/'"\s:]+)/);
       if (urlMatch) {
         const host = urlMatch[1]!;
-        if (!SAFE_URL_HOSTS.has(host)) {
+        if (SAFE_URL_HOSTS.has(host) || /^127\.\d+\.\d+\.\d+$/.test(host) || host === '::1') {
+          targetsLocalhost = true;
+        } else {
           hasExternalUrl = true;
         }
       }
@@ -145,12 +173,17 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
     // Determine severity based on what we can observe at the detector level.
     // Co-occurrence of fs + network is a signal, but NOT confirmed exfiltration —
     // the taint tracker handles actual data-flow analysis with proper context.
-    // MCP servers and CLI tools legitimately need both fs and network access.
-    let severity: Severity = hasExternalUrl ? 'high' : 'medium';
-
-    if (hasFsImport) {
-      severity = severity === 'medium' ? 'medium' : 'high';
-      description += ' (co-occurs with filesystem access)';
+    // Localhost/loopback calls are not exfiltration regardless of fs access.
+    let severity: Severity;
+    if (targetsLocalhost && !hasExternalUrl) {
+      severity = 'low';
+      description += ' (targets localhost)';
+    } else {
+      severity = hasExternalUrl ? 'high' : 'medium';
+      if (hasFsImport && !targetsLocalhost) {
+        severity = severity === 'medium' ? 'medium' : 'high';
+        description += ' (co-occurs with filesystem access)';
+      }
     }
 
     findings.push({

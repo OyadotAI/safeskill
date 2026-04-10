@@ -218,6 +218,26 @@ function findSources(file: FileAnalysis): SourceInfo[] {
   return sources;
 }
 
+const LOCALHOST_PATTERNS = /\b(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1)\b/;
+
+/**
+ * Returns true if all URL arguments in a call target localhost/loopback.
+ * Local network calls are not exfiltration sinks.
+ */
+function targetsLocalhost(args: string[]): boolean {
+  const urlArgs = args.filter(a => /https?:\/\//.test(a) || LOCALHOST_PATTERNS.test(a));
+  if (urlArgs.length === 0) return false;
+  return urlArgs.every(a => LOCALHOST_PATTERNS.test(a));
+}
+
+/**
+ * Server-side listeners (createServer) accept connections — they're not sinks.
+ */
+const SERVER_PATTERNS = new Set([
+  'http.createServer', 'https.createServer', 'net.createServer',
+  'dgram.createSocket',
+]);
+
 function findSinks(file: FileAnalysis): SourceInfo[] {
   const sinks: SourceInfo[] = [];
   const networkModules: readonly string[] = DANGEROUS_MODULES.network;
@@ -226,6 +246,12 @@ function findSinks(file: FileAnalysis): SourceInfo[] {
   );
 
   for (const call of file.callExpressions) {
+    // Server listeners accept inbound connections — not exfiltration sinks
+    if (SERVER_PATTERNS.has(call.expression)) continue;
+
+    // Skip localhost/loopback calls — they don't exfiltrate data
+    if (targetsLocalhost(call.arguments)) continue;
+
     const match = SINK_PATTERNS[call.expression];
     if (match) {
       sinks.push({

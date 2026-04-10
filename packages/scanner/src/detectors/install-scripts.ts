@@ -48,8 +48,40 @@ function getLocation(sourceFile: SourceFile, pos: number, relPath: string) {
   return { file: relPath, line, column };
 }
 
+/**
+ * Whether a file path looks like it's referenced by an install script.
+ * Install scripts typically reference files like `scripts/postinstall.js`,
+ * `install.js`, etc. Files that aren't install scripts get reduced severity
+ * for download-and-execute patterns since the same patterns are common in
+ * legitimate tools (SSRF guards, browser automation, API clients).
+ */
+function looksLikeInstallScriptFile(relPath: string): boolean {
+  const lower = relPath.toLowerCase();
+  return (
+    lower.includes('postinstall') ||
+    lower.includes('preinstall') ||
+    lower.includes('install.') ||
+    lower.includes('scripts/setup') ||
+    lower.includes('scripts/prepare')
+  );
+}
+
+/**
+ * SSRF guard / security validation patterns.
+ * When functions with these names appear near fetch+exec code, it's a strong
+ * signal that the code is VALIDATING requests, not maliciously executing them.
+ * The security mechanism should not be flagged as the vulnerability.
+ */
+const SECURITY_GUARD_PATTERNS = /\b(validate|isPrivate|isLocal|blockList|blocklist|allowList|allowlist|denyList|denylist|ssrf|sanitize|safelist|safeList|isAllowed|isBlocked|checkUrl|verifyUrl|filterUrl)\b/i;
+
 export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
   const findings: CodeFinding[] = [];
+  const isInstallScript = looksLikeInstallScriptFile(relPath);
+
+  // Check if the file contains security guard patterns (SSRF validation, allowlists, etc.)
+  // If so, the fetch+exec combination is likely defensive, not malicious.
+  const fileText = sourceFile.getFullText();
+  const hasSecurityGuards = SECURITY_GUARD_PATTERNS.test(fileText);
 
   const allCalls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
 
@@ -75,23 +107,31 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
   }
 
   // Pattern 1: fetch/http.get followed by eval — download-and-execute
+  // In actual install scripts this is critical. In regular source files (CLI tools,
+  // MCP servers, browser automation) fetch+exec co-occurrence is common and benign.
+  // If security guards (SSRF validators, allowlists) are present, the code is
+  // likely defensive — the security mechanism should not be flagged as malicious.
   if (hasDownload.size > 0 && hasExecute.size > 0) {
-    // Find the download call for location
-    for (const call of allCalls) {
-      const exprText = call.getExpression().getText();
-      const parts = exprText.split('.');
-      const methodName = parts[parts.length - 1]!;
+    // Skip entirely if security guard patterns are present in a non-install file
+    if (isInstallScript || !hasSecurityGuards) {
+      for (const call of allCalls) {
+        const exprText = call.getExpression().getText();
+        const parts = exprText.split('.');
+        const methodName = parts[parts.length - 1]!;
 
-      if (DOWNLOAD_FUNCTIONS.has(exprText) || DOWNLOAD_FUNCTIONS.has(methodName)) {
-        findings.push({
-          category: 'install-scripts',
-          severity: 'critical',
-          location: getLocation(sourceFile, call.getStart(), relPath),
-          description: `Download-and-execute pattern: ${exprText}() with subsequent code execution in same file`,
-          codeSnippet: truncate(call.getText().trim(), 120),
-          confidence: 0.9,
-        });
-        break; // report once per file
+        if (DOWNLOAD_FUNCTIONS.has(exprText) || DOWNLOAD_FUNCTIONS.has(methodName)) {
+          findings.push({
+            category: 'install-scripts',
+            severity: isInstallScript ? 'critical' : 'low',
+            location: getLocation(sourceFile, call.getStart(), relPath),
+            description: isInstallScript
+              ? `Download-and-execute pattern: ${exprText}() with subsequent code execution in install script`
+              : `File has both network fetch and code execution (common in tools/servers)`,
+            codeSnippet: truncate(call.getText().trim(), 120),
+            confidence: isInstallScript ? 0.9 : 0.3,
+          });
+          break; // report once per file
+        }
       }
     }
   }
@@ -190,11 +230,13 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
   if (hasDownload.size > 0 && hasCreateWriteStream && hasExecute.size > 0) {
     findings.push({
       category: 'install-scripts',
-      severity: 'critical',
+      severity: isInstallScript ? 'critical' : 'medium',
       location: { file: relPath, line: 1, column: 1 },
-      description: 'File downloads content to disk and executes it (download-write-execute pattern)',
+      description: isInstallScript
+        ? 'Install script downloads content to disk and executes it (download-write-execute pattern)'
+        : 'File has download, write, and execute calls (common in build tools)',
       codeSnippet: '',
-      confidence: 0.85,
+      confidence: isInstallScript ? 0.85 : 0.3,
     });
   }
 
