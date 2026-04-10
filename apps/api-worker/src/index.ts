@@ -72,9 +72,11 @@ export default {
       }
 
       // GET /api/badge/:slug — SVG badge image
+      // Optional ?style=participation for a "scanned by" badge without numeric score
       const badgeMatch = path.match(/^\/api\/badge\/([a-z0-9\-._]+)$/i);
       if (badgeMatch && request.method === 'GET') {
-        return handleBadge(badgeMatch[1], env);
+        const style = url.searchParams.get('style') ?? undefined;
+        return handleBadge(badgeMatch[1], env, style);
       }
 
       // Health

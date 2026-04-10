@@ -142,11 +142,15 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       }
     }
 
-    // Co-occurrence: fs import + network call = critical
-    const severity: Severity = hasFsImport ? 'critical' : hasExternalUrl ? 'high' : 'medium';
+    // Determine severity based on what we can observe at the detector level.
+    // Co-occurrence of fs + network is a signal, but NOT confirmed exfiltration —
+    // the taint tracker handles actual data-flow analysis with proper context.
+    // MCP servers and CLI tools legitimately need both fs and network access.
+    let severity: Severity = hasExternalUrl ? 'high' : 'medium';
 
-    if (hasFsImport && severity === 'critical') {
-      description += ' (co-occurs with filesystem access — potential data exfiltration)';
+    if (hasFsImport) {
+      severity = severity === 'medium' ? 'medium' : 'high';
+      description += ' (co-occurs with filesystem access)';
     }
 
     findings.push({
@@ -155,7 +159,7 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       location: getLocation(sourceFile, call.getStart(), relPath),
       description,
       codeSnippet: truncate(call.getText().trim(), 120),
-      confidence: severity === 'critical' ? 0.9 : 0.8,
+      confidence: hasExternalUrl ? 0.9 : 0.8,
     });
   }
 

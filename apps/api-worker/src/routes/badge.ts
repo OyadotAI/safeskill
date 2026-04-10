@@ -83,7 +83,37 @@ function notFoundBadge(): string {
 </svg>`;
 }
 
-export async function handleBadge(slug: string, env: Env): Promise<Response> {
+function makeParticipationBadgeSvg(): string {
+  const label = 'safeskill';
+  const value = 'scanned';
+  const color = '#2196f3'; // blue — neutral, indicates participation
+
+  const labelWidth = 70;
+  const valueWidth = 65;
+  const totalWidth = labelWidth + valueWidth;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="20" role="img" aria-label="${label}: ${value}">
+  <title>${label}: ${value}</title>
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r"><rect width="${totalWidth}" height="20" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="${labelWidth}" height="20" fill="#555"/>
+    <rect x="${labelWidth}" width="${valueWidth}" height="20" fill="${color}"/>
+    <rect width="${totalWidth}" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="11">
+    <text aria-hidden="true" x="${labelWidth / 2}" y="15" fill="#010101" fill-opacity=".3">${label}</text>
+    <text x="${labelWidth / 2}" y="14">${label}</text>
+    <text aria-hidden="true" x="${labelWidth + valueWidth / 2}" y="15" fill="#010101" fill-opacity=".3">${value}</text>
+    <text x="${labelWidth + valueWidth / 2}" y="14">${value}</text>
+  </g>
+</svg>`;
+}
+
+export async function handleBadge(slug: string, env: Env, style?: string): Promise<Response> {
   const headers = {
     'Content-Type': 'image/svg+xml',
     'Cache-Control': 'public, max-age=3600, s-maxage=3600',
@@ -99,6 +129,12 @@ export async function handleBadge(slug: string, env: Env): Promise<Response> {
     if (!result?.overallScore && result?.overallScore !== 0) {
       return new Response(notFoundBadge(), { status: 200, headers });
     }
+
+    // ?style=participation returns a "scanned" badge without numeric score
+    if (style === 'participation') {
+      return new Response(makeParticipationBadgeSvg(), { status: 200, headers });
+    }
+
     return new Response(makeBadgeSvg(result.overallScore), { status: 200, headers });
   } catch {
     return new Response(notFoundBadge(), { status: 200, headers });
