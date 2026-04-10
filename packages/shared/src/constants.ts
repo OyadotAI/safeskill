@@ -248,8 +248,24 @@ const TEST_FILE_PATTERNS = [
 ];
 
 /**
+ * Security documentation file patterns.
+ * These files describe threats a project defends against — phrases like
+ * "steal credentials" or "ignore previous instructions" are DEFENSIVE
+ * documentation, not attack instructions.
+ */
+const SECURITY_DOC_PATTERNS = [
+  /^SECURITY\.md$/i,
+  /^SECURITY\.txt$/i,
+  /^THREAT[_-]?MODEL/i,
+  /^RESPONSIBLE[_-]?DISCLOSURE/i,
+  /^VULNERABILITY/i,
+  /^PENTEST/i,
+];
+
+/**
  * Returns true if a relative file path falls inside a recognised
- * test / fixture / golden directory, or matches a test file name pattern.
+ * test / fixture / golden directory, matches a test file name pattern,
+ * or is a security documentation file (threat models, disclosure policies).
  */
 export function isTestFixturePath(relPath: string): boolean {
   const normalized = relPath.replace(/\\/g, '/');
@@ -271,7 +287,12 @@ export function isTestFixturePath(relPath: string): boolean {
 
   // Check the file name itself for test patterns
   const fileName = segments[segments.length - 1] ?? '';
-  return TEST_FILE_PATTERNS.some(re => re.test(fileName));
+  if (TEST_FILE_PATTERNS.some(re => re.test(fileName))) return true;
+
+  // Security documentation files — describe attacks the project defends against
+  if (SECURITY_DOC_PATTERNS.some(re => re.test(fileName))) return true;
+
+  return false;
 }
 
 /**
