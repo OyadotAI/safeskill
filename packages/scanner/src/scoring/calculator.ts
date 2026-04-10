@@ -25,13 +25,25 @@ export interface ScoreInput {
 }
 
 /**
- * Categories of findings that are EXPECTED for CLI tools and dev tools.
+ * Categories of findings that are EXPECTED for CLI tools.
  * These should not penalize the score when the package is a CLI.
  */
 const CLI_EXPECTED_CATEGORIES = new Set([
   'process-spawn',
   'filesystem-access',
   'env-access',
+]);
+
+/**
+ * Categories of findings that are EXPECTED for MCP servers.
+ * MCP servers legitimately use filesystem, network, process, and env access
+ * as part of their core tool functionality — penalizing these is wrong.
+ */
+const MCP_EXPECTED_CATEGORIES = new Set([
+  'process-spawn',
+  'filesystem-access',
+  'env-access',
+  'network-access',
 ]);
 
 export interface ScoreOutput {
@@ -54,16 +66,19 @@ export function calculateScore(
   mismatches: MismatchFinding[],
   meta: ScoreInput,
 ): ScoreOutput {
-  // For CLI tools and MCP servers, filter out expected findings from dangerous API scoring.
-  // CLI tools and MCP servers NEED child_process, fs, and env access — penalizing them is wrong.
+  // For CLI tools and MCP servers, filter out expected findings from scoring.
+  // CLI tools NEED child_process, fs, and env access.
+  // MCP servers additionally NEED network access as core tool functionality.
   const isCli = meta.packageType === 'cli-tool';
   const isMcp = meta.packageType === 'mcp-server';
   const isToolPackage = isCli || isMcp;
+  const expectedCategories = isMcp ? MCP_EXPECTED_CATEGORIES : CLI_EXPECTED_CATEGORIES;
   const contextFindings = isToolPackage
-    ? codeFindings.filter(f => !CLI_EXPECTED_CATEGORIES.has(f.category))
+    ? codeFindings.filter(f => !expectedCategories.has(f.category))
     : codeFindings;
 
-  // Also reduce taint flow severity for tool packages accessing their own config
+  // Reduce taint flow noise for tool packages (CLI/MCP servers).
+  // These packages legitimately read files, env vars, and make network requests.
   const contextTaintFlows = isToolPackage
     ? taintFlows.filter(f => {
         // Tool reading its own config dir is not exfiltration
@@ -71,7 +86,23 @@ export function calculateScore(
           !f.source.description.includes('.ssh') &&
           !f.source.description.includes('.aws') &&
           !f.source.description.includes('.gnupg');
-        return !isOwnConfig;
+        if (isOwnConfig) return false;
+
+        // For tool packages, reading env vars and sending network requests is the
+        // SECURE pattern (e.g. reading OPENAI_API_KEY from env to call an API).
+        // Only flag env flows if they access truly sensitive non-API-key vars
+        // like SSH keys or bulk access.
+        const isEnvToNetwork = f.source.type === 'process.env' &&
+          !f.source.description.includes('Bulk') &&
+          (f.sink.type.startsWith('fetch') ||
+           f.sink.type.startsWith('http') ||
+           f.sink.type.startsWith('https') ||
+           f.sink.type.startsWith('axios') ||
+           f.sink.type.startsWith('got') ||
+           f.sink.type.startsWith('request'));
+        if (isEnvToNetwork) return false;
+
+        return true;
       })
     : taintFlows;
 

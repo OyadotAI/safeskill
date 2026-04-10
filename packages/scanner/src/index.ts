@@ -9,6 +9,7 @@ import { trackTaint } from './analyzers/taint-tracker.js';
 import { correlateCodeContent } from './analyzers/correlation.js';
 import { calculateScore } from './scoring/calculator.js';
 import { inferPermissions } from './analyzers/permission-inferrer.js';
+import { loadIgnoreRules, applyIgnoreRules } from './analyzers/ignore-file.js';
 import { nanoid } from './utils.js';
 
 export interface ScanOptions {
@@ -41,7 +42,7 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
   ]);
 
   // === Combine code findings from all layers ===
-  const codeFindings: CodeFinding[] = [
+  let codeFindings: CodeFinding[] = [
     ...patternResults.findings,
     ...manifestResults.findings,
     ...depResults.findings,
@@ -49,16 +50,25 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
   ];
 
   // === LAYER 2 continued: Taint tracking on AST results ===
-  const taintFlows: TaintFlow[] = trackTaint(astResults.fileAnalyses);
+  let taintFlows: TaintFlow[] = trackTaint(astResults.fileAnalyses);
+
+  let promptFindings: PromptFinding[] = promptResults.findings;
+
+  // === Apply .safeskillignore rules (if present) ===
+  const ignoreRules = await loadIgnoreRules(dir);
+  if (ignoreRules) {
+    const filtered = applyIgnoreRules(codeFindings, promptFindings, taintFlows, ignoreRules);
+    codeFindings = filtered.codeFindings;
+    promptFindings = filtered.promptFindings;
+    taintFlows = filtered.taintFlows;
+  }
 
   // === LAYER 3: Cross-file intelligence ===
   const mismatches: MismatchFinding[] = correlateCodeContent(
     codeFindings,
-    promptResults.findings,
+    promptFindings,
     contentFiles,
   );
-
-  const promptFindings: PromptFinding[] = promptResults.findings;
 
   // === Infer permissions ===
   const permissions: PermissionManifest = inferPermissions(

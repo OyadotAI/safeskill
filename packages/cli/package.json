@@ -1,6 +1,6 @@
 {
   "name": "skillsafe",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "type": "module",
   "description": "SafeSkill CLI — scan AI tool skills for security risks and prompt injection",
   "author": "SafeSkill",

@@ -96,23 +96,25 @@ export function printReport(result: ScanResult): void {
   // Detailed findings (top 10)
   // Filter out expected findings for tool packages and test fixtures from the display
   const CLI_EXPECTED_CATEGORIES = new Set(['process-spawn', 'filesystem-access', 'env-access']);
+  const MCP_EXPECTED_CATEGORIES = new Set(['process-spawn', 'filesystem-access', 'env-access', 'network-access']);
   const isCli = result.packageType === 'cli-tool';
   const isMcp = result.packageType === 'mcp-server';
   const isToolPackage = isCli || isMcp;
+  const expectedCategories = isMcp ? MCP_EXPECTED_CATEGORIES : CLI_EXPECTED_CATEGORIES;
 
   const allFindings = [
     ...result.codeFindings.map(f => ({ ...f, type: 'code' as const })),
     ...result.promptFindings.map(f => ({ ...f, type: 'prompt' as const })),
   ]
     .filter(f => !f.isTestFixture)
-    .filter(f => !(isToolPackage && 'category' in f && CLI_EXPECTED_CATEGORIES.has(f.category as string)))
+    .filter(f => !(isToolPackage && 'category' in f && expectedCategories.has(f.category as string)))
     .sort((a, b) => severityOrder(b.severity) - severityOrder(a.severity));
 
   if (isCli) {
     console.log(chalk.dim('  ℹ CLI tool detected — process-spawn, filesystem, and env-access findings are expected and excluded.'));
     console.log('');
   } else if (isMcp) {
-    console.log(chalk.dim('  ℹ MCP server detected — process-spawn, filesystem, and env-access findings are expected and excluded.'));
+    console.log(chalk.dim('  ℹ MCP server detected — process-spawn, filesystem, network, and env-access findings are expected and excluded.'));
     console.log('');
   }
 
@@ -162,10 +164,14 @@ export function printReport(result: ScanResult): void {
 
   // Badge
   const slug = packageToSlug(result.packageName);
-  console.log(chalk.bold('  Badge:'));
+  console.log(chalk.bold('  Badges:'));
   console.log(chalk.dim('  Add to your README:'));
   console.log('');
+  console.log(chalk.dim('  Score badge (shows numeric score):'));
   console.log(`  ${chalk.cyan(`[![SafeSkill](https://safeskill.dev/api/badge/${slug})](https://safeskill.dev/scan/${slug})`)}`);
+  console.log('');
+  console.log(chalk.dim('  Participation badge (no numeric score):'));
+  console.log(`  ${chalk.cyan(`[![SafeSkill Scanned](https://safeskill.dev/api/badge/${slug}?style=participation)](https://safeskill.dev/scan/${slug})`)}`);
   console.log('');
 }
 

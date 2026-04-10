@@ -54,6 +54,29 @@ const DANGEROUS_INSTALL_PATTERNS = [
   /powershell/i,
 ];
 
+/**
+ * Install scripts that are benign — common build/setup commands that
+ * do not download, execute remote code, or modify system state.
+ * These get severity 'info' instead of the default 'high'.
+ */
+const BENIGN_INSTALL_PATTERNS = [
+  /^\s*echo\s/,                // echo "Done!", echo "Install complete"
+  /^\s*echo$/,                 // bare echo (prints newline)
+  /^\s*true\s*$/,              // no-op
+  /^\s*exit\s+0\s*$/,          // explicit success exit
+  /^\s*tsc\b/,                 // TypeScript compilation
+  /^\s*node\s+[\w./\-]+\.m?[jt]s/,  // node build.js, node scripts/postinstall.js (not -e)
+  /^\s*husky\s/,               // husky install
+  /^\s*patch-package\b/,       // patch-package
+  /^\s*ngcc\b/,                // Angular compiler
+  /^\s*prisma\s+generate\b/,   // Prisma client generation
+  /^\s*esbuild\b/,             // esbuild
+  /^\s*rimraf\b/,              // rimraf (cleanup)
+  /^\s*shx\s/,                 // shx (shell commands cross-platform)
+  /^\s*opencollective\b/,      // opencollective postinstall
+  /^\s*is-ci\b/,               // is-ci && ... (conditional CI scripts)
+];
+
 export async function analyzeManifest(dir: string): Promise<ManifestResult> {
   const findings: CodeFinding[] = [];
   let hasInstallScripts = false;
@@ -118,12 +141,21 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
     let severity: CodeFinding['severity'] = 'high';
     let description = `Has ${key} script: "${script}"`;
 
+    // Check for dangerous patterns first (highest priority)
+    let isDangerous = false;
     for (const pattern of DANGEROUS_INSTALL_PATTERNS) {
       if (pattern.test(script)) {
         severity = 'critical';
         description = `${key} script downloads/executes remote code: "${script}"`;
+        isDangerous = true;
         break;
       }
+    }
+
+    // If not dangerous, check if it's a known benign pattern
+    if (!isDangerous && BENIGN_INSTALL_PATTERNS.some(p => p.test(script))) {
+      severity = 'info';
+      description = `Has ${key} script (benign): "${script}"`;
     }
 
     findings.push({
