@@ -133,7 +133,10 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
     }
   }
 
-  // Detect very long single-line expressions (>500 chars, likely minified/obfuscated)
+  // Detect very long single-line expressions (likely minified/obfuscated).
+  // Heuristic: minified code is code — packed with operators, semicolons, and
+  // identifier punctuation. A long line that is predominantly inside a single
+  // string literal is a long prompt or help text, not obfuscation.
   const fullText = sourceFile.getFullText();
   const lines = fullText.split('\n');
   for (let i = 0; i < lines.length; i++) {
@@ -144,22 +147,38 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
     if (trimmed.startsWith('import ') || trimmed.startsWith('require(')) continue;
     if (trimmed.startsWith('export ')) continue;
 
-    if (line.length > 500) {
-      // Skip long string literal assignments — system prompts, templates, etc.
-      // These are common in constants files and are not obfuscation.
-      if (/^\s*(?:const|let|var|export\s+(?:const|let|var))\s+\w+\s*=\s*['"`]/.test(trimmed)) continue;
-      // Also skip lines that are predominantly a string (array of strings, object values)
-      if (/^\s*['"`]/.test(trimmed) || /^\s*\[?\s*['"`]/.test(trimmed)) continue;
+    // Raise the minimum length — 500 fires on long prompts and MCP tool
+    // descriptions; 800 avoids most prose while still catching packed code.
+    if (line.length <= 800) continue;
 
-      findings.push({
-        category: 'obfuscation',
-        severity: 'critical',
-        location: { file: relPath, line: i + 1, column: 1 },
-        description: `Very long single-line expression (${line.length} chars) — possibly minified or obfuscated code`,
-        codeSnippet: truncate(trimmed, 120),
-        confidence: 0.75,
-      });
-    }
+    // Skip long string literal assignments — system prompts, templates, etc.
+    if (/^\s*(?:const|let|var|export\s+(?:const|let|var))\s+\w+\s*(?::\s*[\w<>,|\s]+\s*)?=\s*['"`]/.test(trimmed)) continue;
+    // Skip object property / argument values where the RHS is a string.
+    // Covers MCP tool definitions like  `description: 'Retrieve a symbol...'`
+    // and inline return statements like `return \`<long prompt>\`;`.
+    if (/^\s*(?:['"][\w$-]+['"]|\w+)\s*:\s*['"`]/.test(trimmed)) continue;
+    if (/^\s*return\s+['"`]/.test(trimmed)) continue;
+    // Lines that start with a string/array/template literal.
+    if (/^\s*['"`]/.test(trimmed) || /^\s*\[?\s*['"`]/.test(trimmed)) continue;
+
+    // Measure how much of the line is inside string/template literals. If most
+    // characters are inside quotes, this is prose, not code.
+    const nonStringLen = measureNonStringLength(line);
+    if (nonStringLen < line.length * 0.3) continue;
+
+    // Require code-like density: multiple operators / semicolons / punctuation.
+    // A true minified line hits these hundreds of times; prose hits them few.
+    const codePunct = (line.match(/[;{}()=+\-*/&|<>!?:,]/g) ?? []).length;
+    if (codePunct < 20) continue;
+
+    findings.push({
+      category: 'obfuscation',
+      severity: 'critical',
+      location: { file: relPath, line: i + 1, column: 1 },
+      description: `Very long single-line expression (${line.length} chars) — possibly minified or obfuscated code`,
+      codeSnippet: truncate(trimmed, 120),
+      confidence: 0.75,
+    });
   }
 
   // Detect eval with string concatenation
@@ -192,17 +211,60 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
   for (const literal of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
     const rawText = literal.getText();
     const unicodeMatches = rawText.match(unicodeIdentifierPattern);
-    if (unicodeMatches && unicodeMatches.length > 3) {
-      findings.push({
-        category: 'obfuscation',
-        severity: 'critical',
-        location: getLocation(sourceFile, literal.getStart(), relPath),
-        description: `Unicode-escaped string with ${unicodeMatches.length} escape sequences`,
-        codeSnippet: truncate(rawText, 120),
-        confidence: 0.85,
-      });
-    }
+    if (!unicodeMatches || unicodeMatches.length <= 3) continue;
+
+    // Only flag when escapes decode to printable ASCII — the classic
+    // identifier-obfuscation shape. Box-drawing banners (U+2500–U+259F),
+    // bullets (U+2022), and other non-ASCII display characters are legitimate.
+    const ascii = countAsciiPrintableEscapes(unicodeMatches);
+    if (ascii <= 3) continue;
+
+    findings.push({
+      category: 'obfuscation',
+      severity: 'critical',
+      location: getLocation(sourceFile, literal.getStart(), relPath),
+      description: `Unicode-escaped string with ${ascii} ASCII-identifier escapes (string obfuscation)`,
+      codeSnippet: truncate(rawText, 120),
+      confidence: 0.85,
+    });
   }
 
   return findings;
+}
+
+/**
+ * Counts how many chars of `line` lie outside single/double/backtick string
+ * literals. Rough lexer — enough to distinguish a 900-char template-literal
+ * prompt from a 900-char minified statement.
+ */
+function measureNonStringLength(line: string): number {
+  let inStr: '"' | "'" | '`' | null = null;
+  let escape = false;
+  let nonStr = 0;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (inStr) {
+      if (escape) { escape = false; continue; }
+      if (c === '\\') { escape = true; continue; }
+      if (c === inStr) { inStr = null; }
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+    nonStr++;
+  }
+  return nonStr;
+}
+
+/**
+ * Counts \uXXXX escapes whose code point is a printable ASCII character
+ * (U+0020..U+007E). These are the shapes used to obfuscate identifiers like
+ * "process" or "require".
+ */
+function countAsciiPrintableEscapes(matches: RegExpMatchArray): number {
+  let n = 0;
+  for (const m of matches) {
+    const cp = parseInt(m.slice(2), 16);
+    if (cp >= 0x20 && cp <= 0x7e) n++;
+  }
+  return n;
 }

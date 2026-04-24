@@ -21,23 +21,34 @@ export interface ScanOptions {
   packageVersion?: string;
   /** Skip dependency analysis (faster) */
   skipDeps?: boolean;
+  /** Extra glob patterns to exclude from file discovery (in addition to
+   *  the built-in defaults and anything declared in .safeskillignore). */
+  excludePaths?: string[];
 }
 
 export async function scan(options: ScanOptions): Promise<ScanResult> {
   const startTime = Date.now();
   const { dir, packageName = 'unknown', packageVersion = null } = options;
 
+  // Load .safeskillignore up front so file-level excludes apply to discovery,
+  // not just to post-scan filtering.
+  const ignoreRules = await loadIgnoreRules(dir);
+  const extraIgnores = [
+    ...(options.excludePaths ?? []),
+    ...(ignoreRules?.fileGlobs ?? []),
+  ];
+
   // === LAYER 1: Fast Pass (parallel) ===
   const [patternResults, manifestResults, depResults, contentFiles] = await Promise.all([
-    analyzePatterns(dir),
+    analyzePatterns(dir, extraIgnores),
     analyzeManifest(dir),
     options.skipDeps ? Promise.resolve({ findings: [], dependencyCount: 0 }) : analyzeDependencies(dir),
-    discoverContent(dir),
+    discoverContent(dir, extraIgnores),
   ]);
 
   // === LAYER 2 + 2B: Deep Analysis (parallel) ===
   const [astResults, promptResults] = await Promise.all([
-    analyzeAST(dir, patternResults.flaggedFiles),
+    analyzeAST(dir, patternResults.flaggedFiles, extraIgnores),
     detectPromptInjection(contentFiles),
   ]);
 
@@ -55,7 +66,6 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
   let promptFindings: PromptFinding[] = promptResults.findings;
 
   // === Apply .safeskillignore rules (if present) ===
-  const ignoreRules = await loadIgnoreRules(dir);
   if (ignoreRules) {
     const filtered = applyIgnoreRules(codeFindings, promptFindings, taintFlows, ignoreRules);
     codeFindings = filtered.codeFindings;
@@ -78,6 +88,21 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
     mismatches,
   );
 
+  // If the AST layer couldn't read any source files, surface that loudly as a
+  // finding so consumers see why the score is capped instead of wondering why
+  // a package with no findings got a "caution" grade.
+  if (astResults.filesScanned === 0) {
+    codeFindings.push({
+      category: 'obfuscation',
+      severity: 'medium',
+      location: { file: 'package.json', line: 0, column: 0 },
+      description:
+        'Inconclusive: scanner found no analysable source files. The published artifact may ship only compiled bundles, non-JS code, or documentation. Score capped accordingly.',
+      codeSnippet: '',
+      confidence: 1.0,
+    });
+  }
+
   // === Calculate unified score ===
   const { overallScore, codeScore, contentScore, breakdown } = calculateScore(
     codeFindings,
@@ -92,6 +117,7 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
       hasRepository: manifestResults.hasRepository,
       hasTypes: manifestResults.hasTypes,
       packageType: manifestResults.packageType,
+      filesScanned: astResults.filesScanned,
     },
   );
 

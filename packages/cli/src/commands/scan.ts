@@ -39,7 +39,19 @@ export function registerScanCommand(program: Command): void {
     .option('--skip-deps', 'Skip dependency analysis (faster)')
     .option('--no-color', 'Disable colored output')
     .option('--share', 'Upload the scan result and get a shareable URL')
-    .action(async (pkg: string, options: { json?: boolean; skipDeps?: boolean; share?: boolean }) => {
+    .option(
+      '--exclude <glob...>',
+      'Extra glob patterns to exclude from file discovery (repeatable). A .safeskillignore file in the target is also honored.',
+    )
+    .action(async (
+      pkg: string,
+      options: {
+        json?: boolean;
+        skipDeps?: boolean;
+        share?: boolean;
+        exclude?: string[];
+      },
+    ) => {
       const spinner = ora({
         text: `Resolving ${chalk.cyan(pkg)}...`,
         color: 'cyan',
@@ -49,13 +61,14 @@ export function registerScanCommand(program: Command): void {
         // Resolve package to a directory
         const { dir, packageName, packageVersion, cleanup } = await resolvePackage(pkg);
 
-        spinner.text = `Scanning ${chalk.cyan(packageName)}...`;
+        spinner.text = `Scanning ${chalk.cyan(packageName)} (this may take a few seconds on large repos)...`;
 
         const result = await scan({
           dir,
           packageName,
           packageVersion: packageVersion ?? undefined,
           skipDeps: options.skipDeps,
+          excludePaths: options.exclude,
         });
 
         spinner.stop();

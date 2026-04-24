@@ -16,7 +16,10 @@ export interface ContentFile {
  * Discovers all content files that need prompt injection scanning.
  * Also extracts long string literals from code that look like prompts.
  */
-export async function discoverContent(dir: string): Promise<ContentFile[]> {
+export async function discoverContent(
+  dir: string,
+  extraIgnores: string[] = [],
+): Promise<ContentFile[]> {
   const results: ContentFile[] = [];
 
   // Find all content files
@@ -24,14 +27,20 @@ export async function discoverContent(dir: string): Promise<ContentFile[]> {
   const files = await globby(contentGlobs, {
     cwd: dir,
     ignore: [
-      'node_modules/**', 'dist/**', '.git/**',
+      'node_modules/**', '**/node_modules/**',
+      'dist/**', 'build/**', 'out/**',
+      '.next/**', '.turbo/**', '.cache/**',
+      'coverage/**', '.git/**',
       'CHANGELOG.md', 'CHANGELOG/**',
       // License files contain standard legal text — not security-relevant content
       'LICENSE', 'LICENSE.*', 'LICENCE', 'LICENCE.*',
       'LICENSES/**', 'LICENCES/**',
       '**/LICENSE', '**/LICENSE.*',
+      ...extraIgnores,
     ],
     absolute: false,
+    followSymbolicLinks: false,
+    gitignore: false,
   });
 
   const prioritySet = new Set(PRIORITY_CONTENT_FILES.map(f => f.toLowerCase()));
@@ -63,8 +72,17 @@ export async function discoverContent(dir: string): Promise<ContentFile[]> {
   // Extract prompt-like strings from code files
   const codeFiles = await globby(['**/*.{ts,js,mjs,cjs}'], {
     cwd: dir,
-    ignore: ['node_modules/**', 'dist/**', '.git/**', '**/*.d.ts'],
+    ignore: [
+      'node_modules/**', '**/node_modules/**',
+      'dist/**', 'build/**', 'out/**',
+      '.next/**', '.turbo/**', '.cache/**',
+      'coverage/**', '.git/**',
+      '**/*.d.ts',
+      ...extraIgnores,
+    ],
     absolute: false,
+    followSymbolicLinks: false,
+    gitignore: false,
   });
 
   await Promise.all(

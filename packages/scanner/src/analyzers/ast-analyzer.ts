@@ -1,9 +1,40 @@
 import { Project, SyntaxKind, type SourceFile } from 'ts-morph';
 import path from 'path';
+import { globby } from 'globby';
 import type { CodeFinding, DetectorCategory, SourceLocation } from '@safeskill/shared';
 import { isTestFixturePath, TEST_FIXTURE_CONFIDENCE_FACTOR } from '@safeskill/shared';
 import { ALL_DETECTORS } from '../detectors/index.js';
 import { truncate } from '../utils.js';
+
+// Hard cap on files handed to ts-morph. On a local checkout with a full
+// node_modules, the glob can match tens of thousands of files and pin a core
+// indefinitely. node_modules is already ignored; this cap is a safety net for
+// monorepos / generated code sprawl.
+const MAX_AST_FILES = 5000;
+
+// Default ignore patterns. `dist/`, `build/`, and `out/` are deliberately NOT
+// listed — we decide at scan time whether to skip them. For local checkouts
+// that have a sibling `src/`, those directories are generated and skipping
+// them avoids duplicate findings. For published npm tarballs that only ship
+// compiled output, those directories ARE the code we need to analyse;
+// skipping them produces the `filesScanned: 0` bug.
+const BASE_IGNORES = [
+  'node_modules/**',
+  '**/node_modules/**',
+  '.next/**',
+  '.turbo/**',
+  '.cache/**',
+  'coverage/**',
+  '.git/**',
+  '**/*.d.ts',
+  '**/*.test.*',
+  '**/*.spec.*',
+  '**/*.min.js',
+  '**/*.min.mjs',
+  '**/*.bundle.js',
+];
+
+const GENERATED_DIRS = ['dist/**', 'build/**', 'out/**'];
 
 // ---------------------------------------------------------------------------
 // Public result types
@@ -312,6 +343,7 @@ function analyzeSourceFile(
 export async function analyzeAST(
   dir: string,
   flaggedFiles: Set<string>,
+  extraIgnores: string[] = [],
 ): Promise<ASTResult> {
   const project = new Project({
     compilerOptions: {
@@ -325,39 +357,44 @@ export async function analyzeAST(
     skipFileDependencyResolution: true,
   });
 
-  // Add source files — prioritize flagged files but scan all code files
-  const globPatterns = [
-    path.join(dir, '**/*.ts'),
-    path.join(dir, '**/*.js'),
-    path.join(dir, '**/*.mjs'),
-    path.join(dir, '**/*.cjs'),
-  ];
+  // Enumerate files with globby FIRST so node_modules and other ignored trees
+  // are never walked by ts-morph. Passing the ignore patterns to
+  // addSourceFilesAtPaths was insufficient — ts-morph loaded everything first,
+  // which pinned a core on any checkout with a full node_modules.
+  const globPatterns = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.mjs', '**/*.cjs'];
 
-  const ignorePatterns = [
-    path.join(dir, 'node_modules/**'),
-    path.join(dir, 'dist/**'),
-    path.join(dir, '.git/**'),
-    path.join(dir, '**/*.d.ts'),
-    path.join(dir, '**/*.test.*'),
-    path.join(dir, '**/*.spec.*'),
-  ];
+  // First pass: ignore generated dirs. If the source tree is the generated
+  // output (published tarballs that ship dist/ only), this returns nothing —
+  // fall back to including generated dirs so we still scan the shipped code.
+  let relFiles = await globby(globPatterns, {
+    cwd: dir,
+    ignore: [...BASE_IGNORES, ...GENERATED_DIRS, ...extraIgnores],
+    absolute: false,
+    followSymbolicLinks: false,
+    gitignore: false,
+  });
 
-  project.addSourceFilesAtPaths(
-    globPatterns.map((p) => `${p}`),
-  );
+  if (relFiles.length === 0) {
+    relFiles = await globby(globPatterns, {
+      cwd: dir,
+      ignore: [...BASE_IGNORES, ...extraIgnores],
+      absolute: false,
+      followSymbolicLinks: false,
+      gitignore: false,
+    });
+  }
 
-  // Remove files matching ignore patterns
-  for (const sf of project.getSourceFiles()) {
-    const filePath = sf.getFilePath();
-    if (ignorePatterns.some((pattern) => {
-      // Simple glob matching: convert ** to regex
-      const regexStr = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '.*')
-        .replace(/\*/g, '[^/]*');
-      return new RegExp(`^${regexStr}$`).test(filePath);
-    })) {
-      project.removeSourceFile(sf);
+  // Apply hard cap to prevent runaway parsing on huge repos. Deterministic
+  // ordering so the cap truncation is stable across runs.
+  relFiles.sort();
+  const limited = relFiles.slice(0, MAX_AST_FILES);
+
+  for (const rel of limited) {
+    const abs = path.join(dir, rel);
+    try {
+      project.addSourceFileAtPath(abs);
+    } catch {
+      // Unreadable or malformed file — skip.
     }
   }
 
