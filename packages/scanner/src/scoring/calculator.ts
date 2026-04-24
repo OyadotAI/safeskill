@@ -22,7 +22,16 @@ export interface ScoreInput {
   hasRepository: boolean;
   hasTypes: boolean;
   packageType: PackageType;
+  /** How many source files the AST layer actually analysed. When 0 the
+   *  code scan produced no signal; we cannot claim the package is safe. */
+  filesScanned: number;
 }
+
+// When we fail to scan any source files (published tarball ships nothing
+// scannable, unreadable tree, etc.), this is the highest we're willing to
+// report. The grade maps to "caution" — the report surfaces the reason
+// instead of misleading consumers with a high green score.
+const INCONCLUSIVE_CODE_SCAN_CAP = 50;
 
 /**
  * Categories of findings that are EXPECTED for CLI tools.
@@ -181,16 +190,25 @@ export function calculateScore(
     overallScore = Math.min(overallScore, 10);
   }
 
+  // If no source files were scannable we cannot vouch for the package. Cap
+  // the score instead of letting "no findings" promote it to Verified Safe.
+  if (meta.filesScanned === 0) {
+    overallScore = Math.min(overallScore, INCONCLUSIVE_CODE_SCAN_CAP);
+  }
+
   overallScore = clamp(overallScore, 0, 100);
 
   // Calculate sub-scores
-  const codeScore = clamp(Math.round(
+  let codeScore = clamp(Math.round(
     (dangerousApis / SCORE_WEIGHTS.dangerousApis) * 25 +
     (dataFlowRisks / SCORE_WEIGHTS.dataFlowRisks) * 25 +
     (networkBehavior / SCORE_WEIGHTS.networkBehavior) * 20 +
     (dependencyHealth / SCORE_WEIGHTS.dependencyHealth) * 15 +
     (codeQuality / SCORE_WEIGHTS.codeQuality) * 15
   ), 0, 100);
+  if (meta.filesScanned === 0) {
+    codeScore = Math.min(codeScore, INCONCLUSIVE_CODE_SCAN_CAP);
+  }
 
   const contentScore = clamp(Math.round(
     (promptInjectionRisks / SCORE_WEIGHTS.promptInjectionRisks) * 50 +

@@ -30,6 +30,9 @@ export interface IgnoreRules {
   taintPatterns: Array<{ source: RegExp; sink: RegExp }>;
   /** File path patterns */
   filePatterns: RegExp[];
+  /** Raw file globs (as written) — passed to file-discovery layers so we
+   * never read or parse these paths in the first place. */
+  fileGlobs: string[];
 }
 
 function globToRegex(glob: string): RegExp {
@@ -47,6 +50,7 @@ export function parseIgnoreRules(content: string): IgnoreRules {
     categoryPatterns: [],
     taintPatterns: [],
     filePatterns: [],
+    fileGlobs: [],
   };
 
   for (const rawLine of content.split('\n')) {
@@ -55,7 +59,10 @@ export function parseIgnoreRules(content: string): IgnoreRules {
 
     if (line.startsWith('file:')) {
       const glob = line.slice(5).trim();
-      if (glob) rules.filePatterns.push(globToRegex(glob));
+      if (glob) {
+        rules.filePatterns.push(globToRegex(glob));
+        rules.fileGlobs.push(glob);
+      }
     } else if (line.startsWith('taint:')) {
       const spec = line.slice(6).trim();
       const arrowIdx = spec.indexOf('->');

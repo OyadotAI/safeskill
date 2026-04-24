@@ -262,16 +262,25 @@ function detectPackageType(pkg: Record<string, unknown>, deps: Record<string, st
   const hasBin = !!pkg.bin;
   const allText = `${name} ${desc} ${keywords.join(' ')}`;
 
+  // MCP-server indicators come FIRST. Most MCP servers ship a `bin` entry
+  // so clients can `npx` them, which previously caused them to be classified
+  // as CLI tools and have their code scan short-circuited in scoring.
+  // Check the strongest signal — actually depending on the MCP SDK — before
+  // any keyword heuristics so tools that merely mention "mcp" in their
+  // description (e.g. a tool that scans MCP servers) aren't miscategorized.
+  if (deps['@modelcontextprotocol/sdk'] || deps['mcp-framework']) return 'mcp-server';
+  if (keywords.some(k => k === 'mcp-server' || k === 'mcp_server' || k === 'modelcontextprotocol')) {
+    return 'mcp-server';
+  }
+  if (/\bmcp\s+server\b/.test(allText) || /-mcp($|-)/.test(name) || /^mcp-/.test(name)) {
+    return 'mcp-server';
+  }
+
   // CLI tool indicators
   if (hasBin) return 'cli-tool';
   if (keywords.some(k => ['cli', 'command-line', 'terminal', 'shell', 'devtool', 'dev-tool'].includes(k))) return 'cli-tool';
   if (allText.includes('cli') && (allText.includes('tool') || allText.includes('command'))) return 'cli-tool';
   if (deps['commander'] || deps['yargs'] || deps['meow'] || deps['cac'] || deps['clipanion'] || deps['oclif']) return 'cli-tool';
-
-  // MCP server indicators
-  if (allText.includes('mcp') && allText.includes('server')) return 'mcp-server';
-  if (keywords.some(k => k.includes('mcp'))) return 'mcp-server';
-  if (deps['@modelcontextprotocol/sdk'] || deps['mcp-framework']) return 'mcp-server';
 
   // Skill indicators
   if (keywords.some(k => ['claude-skill', 'claude-code', 'openclaw', 'ai-skill'].includes(k))) return 'skill';

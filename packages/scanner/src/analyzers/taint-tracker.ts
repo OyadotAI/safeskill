@@ -219,15 +219,30 @@ function findSources(file: FileAnalysis): SourceInfo[] {
 }
 
 const LOCALHOST_PATTERNS = /\b(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1)\b/;
+const HOSTNAME_PROP = /\b(?:hostname|host)\s*:\s*['"`]([^'"`]+)['"`]/;
 
 /**
- * Returns true if all URL arguments in a call target localhost/loopback.
- * Local network calls are not exfiltration sinks.
+ * Returns true if every host target we can see in the call's arguments is
+ * localhost/loopback. Accepts both URL strings ("http://127.0.0.1/…") and
+ * options objects ({ hostname: "127.0.0.1", port, path }) used by
+ * http.request / https.request.
  */
 function targetsLocalhost(args: string[]): boolean {
-  const urlArgs = args.filter(a => /https?:\/\//.test(a) || LOCALHOST_PATTERNS.test(a));
-  if (urlArgs.length === 0) return false;
-  return urlArgs.every(a => LOCALHOST_PATTERNS.test(a));
+  let saw = false;
+  let allLocal = true;
+  for (const a of args) {
+    if (/https?:\/\//.test(a)) {
+      saw = true;
+      if (!LOCALHOST_PATTERNS.test(a)) allLocal = false;
+    }
+    const hostProp = a.match(HOSTNAME_PROP);
+    if (hostProp) {
+      saw = true;
+      const host = hostProp[1]!.toLowerCase();
+      if (!LOCALHOST_PATTERNS.test(host) && host !== 'localhost') allLocal = false;
+    }
+  }
+  return saw && allLocal;
 }
 
 /**

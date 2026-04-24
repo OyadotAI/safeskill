@@ -19,7 +19,11 @@ const PATTERNS: PatternRule[] = [
   { pattern: /from\s+['"](?:node:)?fs(?:\/promises)?['"]/g, category: 'filesystem-access', severity: 'medium', description: 'Imports filesystem module', confidence: 1.0 },
   { pattern: /require\s*\(\s*['"]fs-extra['"]\s*\)/g, category: 'filesystem-access', severity: 'medium', description: 'Imports fs-extra', confidence: 1.0 },
   { pattern: /\.(readFileSync|readFile|writeFileSync|writeFile|unlinkSync|unlink|rmdirSync|rmdir|rmSync)\s*\(/g, category: 'filesystem-access', severity: 'high', description: 'Direct filesystem operation', confidence: 0.9 },
-  { pattern: /(?:~\/\.ssh|~\/\.aws|~\/\.env|~\/\.gnupg|~\/\.npmrc|~\/\.docker|~\/\.kube|\/etc\/passwd|\/etc\/shadow)/g, category: 'filesystem-access', severity: 'critical', description: 'Accesses sensitive system path', confidence: 0.95 },
+  // Sensitive path regex — a bare string literal mentioning a sensitive path is
+  // not by itself "access". Severity is gated later: kept at high only when the
+  // same file also contains fs imports / fs operations, otherwise demoted.
+  // Detector `filesystem-access` handles real fs calls at the AST level.
+  { pattern: /(?:~\/\.ssh|~\/\.aws|~\/\.env|~\/\.gnupg|~\/\.npmrc|~\/\.docker|~\/\.kube|\/etc\/passwd|\/etc\/shadow)/g, category: 'filesystem-access', severity: 'high', description: 'References sensitive system path', confidence: 0.7 },
   { pattern: /(?:homedir|userInfo)\s*\(\s*\)/g, category: 'filesystem-access', severity: 'medium', description: 'Accesses user home directory info', confidence: 0.8 },
 
   // Network access
@@ -65,12 +69,56 @@ export interface PatternMatchResult {
   flaggedFiles: Set<string>;
 }
 
-export async function analyzePatterns(dir: string): Promise<PatternMatchResult> {
-  const files = await globby(['**/*.{ts,js,mjs,cjs,tsx,jsx}'], {
+// UI/frontend file extensions that cannot perform filesystem access at runtime.
+// Sensitive-path string literals in these files are doc/help text, not exfil vectors.
+const UI_FILE_EXTS = new Set(['.tsx', '.jsx', '.vue', '.svelte']);
+
+function isUiFile(relPath: string): boolean {
+  const ext = relPath.slice(relPath.lastIndexOf('.'));
+  return UI_FILE_EXTS.has(ext);
+}
+
+export async function analyzePatterns(
+  dir: string,
+  extraIgnores: string[] = [],
+): Promise<PatternMatchResult> {
+  const globPatterns = ['**/*.{ts,js,mjs,cjs,tsx,jsx}'];
+  const baseIgnores = [
+    'node_modules/**',
+    '**/node_modules/**',
+    '.next/**',
+    '.turbo/**',
+    '.cache/**',
+    'coverage/**',
+    '.git/**',
+    '**/*.d.ts',
+    '**/*.test.*',
+    '**/*.spec.*',
+    '**/*.min.js',
+    '**/*.min.mjs',
+    '**/*.bundle.js',
+    ...extraIgnores,
+  ];
+  const generatedDirs = ['dist/**', 'build/**', 'out/**'];
+
+  // First pass skips generated output; fall back to scanning it if that's
+  // all the tarball shipped (matches ast-analyzer behavior).
+  let files = await globby(globPatterns, {
     cwd: dir,
-    ignore: ['node_modules/**', 'dist/**', '.git/**', '**/*.d.ts', '**/*.test.*', '**/*.spec.*'],
+    ignore: [...baseIgnores, ...generatedDirs],
     absolute: false,
+    followSymbolicLinks: false,
+    gitignore: false,
   });
+  if (files.length === 0) {
+    files = await globby(globPatterns, {
+      cwd: dir,
+      ignore: baseIgnores,
+      absolute: false,
+      followSymbolicLinks: false,
+      gitignore: false,
+    });
+  }
 
   const findings: CodeFinding[] = [];
   const flaggedFiles = new Set<string>();
@@ -86,8 +134,21 @@ export async function analyzePatterns(dir: string): Promise<PatternMatchResult> 
       }
 
       const isFixture = isTestFixturePath(relPath);
+      const ui = isUiFile(relPath);
+      // A file "does fs" if it imports an fs module or uses a known fs API.
+      // When false, a sensitive-path string literal is almost always docs/help
+      // text, not a read/write operation.
+      const hasFsContext =
+        /require\s*\(\s*['"](?:node:)?fs(?:\/promises)?['"]\s*\)/.test(content) ||
+        /from\s+['"](?:node:)?fs(?:\/promises)?['"]/.test(content) ||
+        /\b(?:readFileSync|readFile|writeFileSync|writeFile|unlink|appendFile|createReadStream|createWriteStream)\s*\(/.test(content);
 
       for (const rule of PATTERNS) {
+        // Sensitive-path rule: skip entirely for UI files (browser, no fs)
+        // and for files with no fs context (docs/strings, not access).
+        const isSensitivePathRule = rule.description === 'References sensitive system path';
+        if (isSensitivePathRule && (ui || !hasFsContext)) continue;
+
         const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
         let match: RegExpExecArray | null;
 

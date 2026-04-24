@@ -1,4 +1,4 @@
-import { SyntaxKind, type SourceFile } from 'ts-morph';
+import { Node, SyntaxKind, type SourceFile } from 'ts-morph';
 import type { CodeFinding } from '@safeskill/shared';
 import { truncate } from '../utils.js';
 
@@ -7,11 +7,29 @@ function getLocation(sourceFile: SourceFile, pos: number, relPath: string) {
   return { file: relPath, line, column };
 }
 
-function isLiteralArgument(argKind: SyntaxKind): boolean {
-  return (
-    argKind === SyntaxKind.StringLiteral ||
-    argKind === SyntaxKind.NoSubstitutionTemplateLiteral
-  );
+/**
+ * Returns true when `arg` is (or wraps) a compile-time string literal that
+ * can be resolved without executing user code. Parenthesized expressions,
+ * `as const` assertions, satisfies clauses, and non-null assertions all
+ * preserve the underlying literal and should not be flagged as dynamic.
+ */
+function isLiteralArgument(arg: Node): boolean {
+  const kind = arg.getKind();
+  if (kind === SyntaxKind.StringLiteral || kind === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    return true;
+  }
+  if (
+    kind === SyntaxKind.ParenthesizedExpression ||
+    kind === SyntaxKind.AsExpression ||
+    kind === SyntaxKind.TypeAssertionExpression ||
+    kind === SyntaxKind.SatisfiesExpression ||
+    kind === SyntaxKind.NonNullExpression
+  ) {
+    const inner =
+      (arg as unknown as { getExpression?: () => Node }).getExpression?.();
+    return inner ? isLiteralArgument(inner) : false;
+  }
+  return false;
 }
 
 export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
@@ -27,7 +45,7 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       if (args.length === 0) continue;
 
       const firstArg = args[0]!;
-      if (!isLiteralArgument(firstArg.getKind())) {
+      if (!isLiteralArgument(firstArg)) {
         findings.push({
           category: 'dynamic-require',
           severity: 'high',
@@ -45,7 +63,7 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       if (args.length === 0) continue;
 
       const firstArg = args[0]!;
-      if (!isLiteralArgument(firstArg.getKind())) {
+      if (!isLiteralArgument(firstArg)) {
         findings.push({
           category: 'dynamic-require',
           severity: 'high',
@@ -63,7 +81,7 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       if (args.length === 0) continue;
 
       const firstArg = args[0]!;
-      if (!isLiteralArgument(firstArg.getKind())) {
+      if (!isLiteralArgument(firstArg)) {
         findings.push({
           category: 'dynamic-require',
           severity: 'high',
@@ -88,7 +106,7 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       if (args.length === 0) continue;
 
       const firstArg = args[0]!;
-      if (!isLiteralArgument(firstArg.getKind())) {
+      if (!isLiteralArgument(firstArg)) {
         findings.push({
           category: 'dynamic-require',
           severity: 'high',

@@ -30,12 +30,40 @@ function snippet(content: string, index: number, length: number): string {
   return raw.replace(/\n/g, '\\n');
 }
 
+/**
+ * Returns true if the character offset falls inside a fenced code block
+ * (```lang ... ```). Markdown instructions that target an AI agent almost
+ * always live inside a code fence; human-onboarding prose does not.
+ */
+function isInsideCodeFence(content: string, offset: number): boolean {
+  let inFence = false;
+  const re = /```/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    if (m.index >= offset) break;
+    inFence = !inFence;
+  }
+  return inFence;
+}
+
+/**
+ * Signals that the surrounding paragraph is AI-directed rather than human-
+ * directed onboarding prose. "Run this", "execute the following", "tell the
+ * agent" — yes. "Add it to your shell profile" — no.
+ */
+const AI_DIRECTED_SIGNALS = /\b(?:agent|assistant|llm|claude|chatgpt|ai|run\s+this|execute\s+(?:this|the\s+following)|ignore\s+(?:previous|prior|all)|you\s+(?:must|should|will)\s+(?:run|execute|send|write|fetch))\b/i;
+
+function isMarkdownFile(filePath: string): boolean {
+  return /\.(?:md|mdx|markdown)(?::\d+)?$/i.test(filePath);
+}
+
 export function detect(
   content: string,
   filePath: string,
   isPriority: boolean,
 ): PromptFinding[] {
   const findings: PromptFinding[] = [];
+  const isMarkdown = isMarkdownFile(filePath);
 
   const allPatterns: Array<{ regex: RegExp; technique: string }> = [
     ...PROMPT_INJECTION_PATTERNS.toolAbuse.map((r) => ({
@@ -54,6 +82,26 @@ export function detect(
 
     while ((match = globalRe.exec(content)) !== null) {
       const { line, column } = lineColFromIndex(content, match.index);
+
+      // In markdown prose, a sentence like "Add it to your shell profile
+      // (~/.zshrc, ~/.bashrc) to persist across sessions" is user-facing
+      // onboarding, not an agent instruction. Require the match to live
+      // inside a code fence OR in a nearby window that is plausibly
+      // AI-directed. `dotfile-modification` / system-write patterns
+      // describing writes to /etc or ~/.ssh remain critical regardless
+      // of markdown context — those are specific, exploitable actions.
+      if (
+        isMarkdown &&
+        technique === 'tool-abuse-pattern' &&
+        !isInsideCodeFence(content, match.index)
+      ) {
+        const windowStart = Math.max(0, match.index - 120);
+        const windowEnd = Math.min(content.length, match.index + match[0].length + 120);
+        const windowText = content.slice(windowStart, windowEnd);
+        if (!AI_DIRECTED_SIGNALS.test(windowText)) {
+          continue;
+        }
+      }
 
       // Tool abuse is always critical
       const severity = 'critical' as const;

@@ -154,7 +154,9 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
 
     if (!isNetworkCall) continue;
 
-    // Check if the URL targets a safe/local host
+    // Check if the URL targets a safe/local host. Hostnames can appear in two
+    // shapes: a string URL ("http://example.com/foo") or an options object
+    // ({ hostname: "127.0.0.1", port, path, ... }) used by http.request.
     let hasExternalUrl = false;
     let targetsLocalhost = false;
     for (const arg of call.getArguments()) {
@@ -163,6 +165,22 @@ export function detect(sourceFile: SourceFile, relPath: string): CodeFinding[] {
       if (urlMatch) {
         const host = urlMatch[1]!;
         if (SAFE_URL_HOSTS.has(host) || /^127\.\d+\.\d+\.\d+$/.test(host) || host === '::1') {
+          targetsLocalhost = true;
+        } else {
+          hasExternalUrl = true;
+        }
+      }
+      // Options-object form: { hostname: "...", host: "..." }
+      const hostnameMatch = argText.match(/\b(?:hostname|host)\s*:\s*['"`]([^'"`]+)['"`]/);
+      if (hostnameMatch) {
+        const host = hostnameMatch[1]!.toLowerCase();
+        if (
+          SAFE_URL_HOSTS.has(host) ||
+          /^127\.\d+\.\d+\.\d+$/.test(host) ||
+          host === '::1' ||
+          host === 'localhost' ||
+          host === '0.0.0.0'
+        ) {
           targetsLocalhost = true;
         } else {
           hasExternalUrl = true;
