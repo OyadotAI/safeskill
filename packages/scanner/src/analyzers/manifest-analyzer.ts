@@ -3,29 +3,35 @@ import path from 'path';
 import type { CodeFinding } from '@safeskill/shared';
 
 /** Files whose presence indicates a non-JavaScript/TypeScript project. */
-const NON_JS_PROJECT_MARKERS = [
-  'pyproject.toml',
-  'setup.py',
-  'requirements.txt',
-  'Cargo.toml',
-  'go.mod',
-  'pom.xml',
-  'build.gradle',
-  'Gemfile',
-  'mix.exs',
-  'composer.json',
+const NON_JS_PROJECT_MARKERS: Array<{ file: string; language: string }> = [
+  { file: 'pyproject.toml', language: 'python' },
+  { file: 'setup.py', language: 'python' },
+  { file: 'requirements.txt', language: 'python' },
+  { file: 'Pipfile', language: 'python' },
+  { file: 'Cargo.toml', language: 'rust' },
+  { file: 'go.mod', language: 'go' },
+  { file: 'pom.xml', language: 'java' },
+  { file: 'build.gradle', language: 'java' },
+  { file: 'build.gradle.kts', language: 'kotlin' },
+  { file: 'Gemfile', language: 'ruby' },
+  { file: 'mix.exs', language: 'elixir' },
+  { file: 'composer.json', language: 'php' },
 ];
 
-async function isNonJsProject(dir: string): Promise<boolean> {
-  for (const marker of NON_JS_PROJECT_MARKERS) {
+async function detectNonJsLanguage(dir: string): Promise<string | null> {
+  for (const { file, language } of NON_JS_PROJECT_MARKERS) {
     try {
-      await access(path.join(dir, marker));
-      return true;
+      await access(path.join(dir, file));
+      return language;
     } catch {
       // file doesn't exist, continue
     }
   }
-  return false;
+  return null;
+}
+
+async function isNonJsProject(dir: string): Promise<boolean> {
+  return (await detectNonJsLanguage(dir)) !== null;
 }
 
 /** Detected package type — affects scoring expectations. */
@@ -42,6 +48,12 @@ export interface ManifestResult {
   devDependencies: Record<string, string>;
   /** Detected package type — CLI tools get different scoring expectations. */
   packageType: PackageType;
+  /** Non-JS language detected via manifest markers (pyproject.toml, Cargo.toml,
+   *  go.mod, etc.), or null when the project looks like JS/TS. Consumed by
+   *  the scoring layer to suppress the "no analysable source files" finding
+   *  and code-score cap, which would otherwise penalize every Python/Rust/Go
+   *  project just for not being JavaScript. */
+  nonJsLanguage: string | null;
 }
 
 const DANGEROUS_INSTALL_PATTERNS = [
@@ -87,6 +99,12 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
   let dependencies: Record<string, string> = {};
   let devDependencies: Record<string, string> = {};
 
+  // Detect non-JS language up-front — needed both to suppress the "missing
+  // package.json" finding and to expose it to the scoring layer regardless
+  // of whether package.json exists (some Python packages ship an npm wrapper
+  // that includes a thin package.json).
+  const nonJsLanguage = await detectNonJsLanguage(dir);
+
   // Read package.json
   let pkg: Record<string, unknown>;
   try {
@@ -94,7 +112,7 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
     pkg = JSON.parse(raw) as Record<string, unknown>;
   } catch {
     // Only flag missing package.json for JavaScript/TypeScript projects
-    if (!(await isNonJsProject(dir))) {
+    if (!nonJsLanguage) {
       findings.push({
         category: 'install-scripts',
         severity: 'medium',
@@ -104,7 +122,7 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
         confidence: 1.0,
       });
     }
-    return { findings, hasInstallScripts, hasSkillManifest, hasReadme, hasRepository, hasTypes, dependencies, devDependencies, packageType: 'unknown' as PackageType };
+    return { findings, hasInstallScripts, hasSkillManifest, hasReadme, hasRepository, hasTypes, dependencies, devDependencies, packageType: 'unknown' as PackageType, nonJsLanguage };
   }
 
   dependencies = (pkg.dependencies as Record<string, string>) ?? {};
@@ -247,6 +265,7 @@ export async function analyzeManifest(dir: string): Promise<ManifestResult> {
     dependencies,
     devDependencies,
     packageType,
+    nonJsLanguage,
   };
 }
 

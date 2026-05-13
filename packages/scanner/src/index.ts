@@ -88,19 +88,35 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
     mismatches,
   );
 
-  // If the AST layer couldn't read any source files, surface that loudly as a
-  // finding so consumers see why the score is capped instead of wondering why
-  // a package with no findings got a "caution" grade.
+  // If the AST layer couldn't read any source files, surface that as an info
+  // note so consumers understand the limitation. For projects that declare a
+  // non-JS language via pyproject.toml / Cargo.toml / go.mod / etc., this is
+  // a coverage limitation, not a security finding — the JS-only AST layer is
+  // out-of-scope for those ecosystems. We emit a 'info' note in that case
+  // and never cap the score for them (see calculator.ts).
   if (astResults.filesScanned === 0) {
-    codeFindings.push({
-      category: 'obfuscation',
-      severity: 'medium',
-      location: { file: 'package.json', line: 0, column: 0 },
-      description:
-        'Inconclusive: scanner found no analysable source files. The published artifact may ship only compiled bundles, non-JS code, or documentation. Score capped accordingly.',
-      codeSnippet: '',
-      confidence: 1.0,
-    });
+    const nonJsLanguage = manifestResults.nonJsLanguage;
+    if (nonJsLanguage) {
+      codeFindings.push({
+        category: 'obfuscation',
+        severity: 'info',
+        location: { file: nonJsLanguage === 'python' ? 'pyproject.toml' : 'package.json', line: 0, column: 0 },
+        description:
+          `Scanner-coverage note: this project declares a ${nonJsLanguage} manifest. SafeSkill's AST detectors target JavaScript/TypeScript and are not run against ${nonJsLanguage} sources. Prompt-injection and dependency checks still apply.`,
+        codeSnippet: '',
+        confidence: 1.0,
+      });
+    } else {
+      codeFindings.push({
+        category: 'obfuscation',
+        severity: 'medium',
+        location: { file: 'package.json', line: 0, column: 0 },
+        description:
+          'Inconclusive: scanner found no analysable source files. The published artifact may ship only compiled bundles or documentation. Score capped accordingly.',
+        codeSnippet: '',
+        confidence: 1.0,
+      });
+    }
   }
 
   // === Calculate unified score ===
@@ -118,6 +134,7 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
       hasTypes: manifestResults.hasTypes,
       packageType: manifestResults.packageType,
       filesScanned: astResults.filesScanned,
+      nonJsLanguage: manifestResults.nonJsLanguage,
     },
   );
 

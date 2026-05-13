@@ -58,6 +58,27 @@ function isMidSentenceSystemMarker(content: string, matchIndex: number): boolean
   return textBefore.length > 0;
 }
 
+function isYamlOrJsonFile(filePath: string): boolean {
+  return /\.(?:ya?ml|json|jsonc|json5|toml)(?::\d+)?$/i.test(filePath);
+}
+
+/**
+ * In YAML/JSON, `system:` (or `System:`, `SYSTEM:`) at indent-only column is
+ * almost always a config key — module-enable flags, schema entries, mapping
+ * keys. The line shape is `[\s-]*<word>:\s*(value or empty)`. Real prompt
+ * injection placing a "SYSTEM:" marker doesn't appear in structured-data
+ * documents — it appears in prose / chat-style input.
+ */
+function looksLikeStructuredKeyLine(content: string, matchIndex: number): boolean {
+  const lineStart = content.lastIndexOf('\n', matchIndex - 1) + 1;
+  const lineEnd = content.indexOf('\n', matchIndex);
+  const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+  // Line is just `<indent><word>:` or `<indent><word>: <scalar>` — no prose,
+  // no sentence punctuation, no multi-word value before the colon.
+  return /^[\s-]*[A-Za-z_][A-Za-z0-9_-]*\s*:\s*(?:[^\n#]*?)?\s*(?:#.*)?$/.test(line) &&
+    !/\.\s+[A-Z]/.test(line);
+}
+
 function isInsideBenignSection(content: string, matchIndex: number): boolean {
   if (isInsideCodeBlock(content, matchIndex)) return true;
   if (isInTechnicalContext(content, matchIndex)) return true;
@@ -96,6 +117,8 @@ export function detect(
     ...EXTRA_PATTERNS,
   ];
 
+  const structuredFile = isYamlOrJsonFile(filePath);
+
   for (const { regex, technique } of allPatterns) {
     // Create a global copy so we can use exec() iteratively
     const globalRe = new RegExp(regex.source, regex.flags.includes('g') ? regex.flags : regex.flags + 'g');
@@ -105,6 +128,18 @@ export function detect(
       // Skip "system:" that appears mid-sentence — it's documentation prose,
       // not a prompt injection marker (e.g. "error type for the entire system:")
       if (technique === 'instruction-pattern' && /\bSYSTEM\s*:/i.test(match[0]) && isMidSentenceSystemMarker(content, match.index)) {
+        continue;
+      }
+      // In a YAML/JSON config file, `system:` (and similar bare instruction-
+      // override tokens that fold to identifiers + colon) are structured-data
+      // keys — module-enable flags, OpenAPI schema names. Skip when the line
+      // is shaped like a key, not prose.
+      if (
+        structuredFile &&
+        (technique === 'instruction-pattern' || technique === 'system-marker') &&
+        /\b(?:SYSTEM|system)\s*:/.test(match[0]) &&
+        looksLikeStructuredKeyLine(content, match.index)
+      ) {
         continue;
       }
 

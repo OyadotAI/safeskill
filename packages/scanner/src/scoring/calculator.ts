@@ -25,6 +25,10 @@ export interface ScoreInput {
   /** How many source files the AST layer actually analysed. When 0 the
    *  code scan produced no signal; we cannot claim the package is safe. */
   filesScanned: number;
+  /** When non-null, the project declares a non-JS manifest (Python, Rust,
+   *  Go, etc.). `filesScanned === 0` for these is expected — the AST layer
+   *  doesn't target them — so we skip the inconclusive-scan score cap. */
+  nonJsLanguage?: string | null;
 }
 
 // When we fail to scan any source files (published tarball ships nothing
@@ -192,7 +196,12 @@ export function calculateScore(
 
   // If no source files were scannable we cannot vouch for the package. Cap
   // the score instead of letting "no findings" promote it to Verified Safe.
-  if (meta.filesScanned === 0) {
+  // Exception: when the project declares a non-JS manifest (pyproject.toml,
+  // Cargo.toml, go.mod, …) the AST layer is structurally out of scope, not
+  // failing — applying the cap penalises every Python/Rust/Go project just
+  // for not being JavaScript. Prompt-injection and dependency layers still
+  // apply normally.
+  if (meta.filesScanned === 0 && !meta.nonJsLanguage) {
     overallScore = Math.min(overallScore, INCONCLUSIVE_CODE_SCAN_CAP);
   }
 
@@ -206,7 +215,7 @@ export function calculateScore(
     (dependencyHealth / SCORE_WEIGHTS.dependencyHealth) * 15 +
     (codeQuality / SCORE_WEIGHTS.codeQuality) * 15
   ), 0, 100);
-  if (meta.filesScanned === 0) {
+  if (meta.filesScanned === 0 && !meta.nonJsLanguage) {
     codeScore = Math.min(codeScore, INCONCLUSIVE_CODE_SCAN_CAP);
   }
 

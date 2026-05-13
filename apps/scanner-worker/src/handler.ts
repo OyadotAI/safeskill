@@ -76,13 +76,27 @@ app.post('/scan', async (req, res) => {
     const wantsPR = req.body.createPR === true;
     let prUrl: string | null = null;
 
-    if (isGitHubRepo && githubToken && wantsPR) {
+    // Skip auto-PR when the scan produced no actionable signal for the
+    // maintainer. That happens in two situations:
+    //   1. The project ships only non-JS code (Python, Rust, Go, …) so the
+    //      AST layer didn't run — opening a PR with a "Use with Caution"
+    //      badge driven by coverage gaps is misleading.
+    //   2. The scan returned zero critical/high findings AND inspected zero
+    //      source files — nothing meaningful to tell the maintainer.
+    const isInconclusiveScan = result.filesScanned === 0;
+    const hasActionableFinding = [...result.codeFindings, ...result.promptFindings]
+      .some((f) => f.severity === 'critical' || f.severity === 'high');
+    const shouldSkipPR = isInconclusiveScan && !hasActionableFinding;
+
+    if (isGitHubRepo && githubToken && wantsPR && !shouldSkipPR) {
       try {
         prUrl = await createScanPR(packageName, slug, result, githubToken);
         if (prUrl) console.log(`[${jobId}] PR created: ${prUrl}`);
       } catch (e) {
         console.log(`[${jobId}] PR creation skipped: ${e instanceof Error ? e.message : e}`);
       }
+    } else if (isGitHubRepo && githubToken && wantsPR && shouldSkipPR) {
+      console.log(`[${jobId}] PR skipped — inconclusive scan with no actionable findings`);
     }
 
     res.status(200).json({ status: 'completed', score: result.overallScore, prUrl });

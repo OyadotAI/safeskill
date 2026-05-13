@@ -22,19 +22,41 @@ const BASE_IGNORES = [
   'node_modules/**',
   '**/node_modules/**',
   '.next/**',
+  '**/.next/**',
   '.turbo/**',
+  '**/.turbo/**',
   '.cache/**',
+  '**/.cache/**',
   'coverage/**',
+  '**/coverage/**',
   '.git/**',
   '**/*.d.ts',
   '**/*.test.*',
   '**/*.spec.*',
   '**/*.min.js',
   '**/*.min.mjs',
+  '**/*.min.cjs',
   '**/*.bundle.js',
+  '**/*.bundle.mjs',
+  // Sourcemaps and their accompanying entries — never source code.
+  '**/*.map',
+  '**/*.js.map',
 ];
 
-const GENERATED_DIRS = ['dist/**', 'build/**', 'out/**'];
+// Nested generated dirs — `frontend/dist/`, `apps/web/build/`, etc. The
+// leading `**/` is required for nested matches; without it, globby treats
+// `dist/**` as anchored to cwd and silently walks every other tree's `dist`.
+const GENERATED_DIRS = [
+  'dist/**', '**/dist/**',
+  'build/**', '**/build/**',
+  'out/**', '**/out/**',
+  // Common bundler output locations that aren't named "dist".
+  '**/.output/**',
+  '**/public/build/**',
+  '**/static/js/**',
+  '**/assets/index-*.js',
+  '**/assets/index-*.mjs',
+];
 
 // ---------------------------------------------------------------------------
 // Public result types

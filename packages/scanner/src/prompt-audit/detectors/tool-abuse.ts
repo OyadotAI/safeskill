@@ -47,6 +47,32 @@ function isInsideCodeFence(content: string, offset: number): boolean {
 }
 
 /**
+ * Returns true if the line containing `offset` is a bash/shell comment
+ * (first non-whitespace character is `#`, and we're not on a markdown
+ * heading line). Inside a fenced bash block this is documentation aimed
+ * at a human reader, not an agent instruction.
+ *
+ * Caller guarantees `offset` is already inside a code fence; we therefore
+ * don't need to worry about confusing `#` with a markdown heading.
+ */
+function isOnBashCommentLine(content: string, offset: number): boolean {
+  const lineStart = content.lastIndexOf('\n', offset - 1) + 1;
+  const lineEnd = content.indexOf('\n', offset);
+  const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+  return /^\s*#/.test(line);
+}
+
+/**
+ * The file path is a README, INSTALL, or SETUP-style human onboarding
+ * document — content that is read by people, not handed to an LLM. Tool/
+ * shell abuse patterns inside these files require stronger signal than in
+ * a skill / system-prompt / tool-description file.
+ */
+function isHumanOnboardingDoc(filePath: string): boolean {
+  return /(?:^|\/)(?:README|INSTALL|SETUP|GETTING[-_]?STARTED|QUICKSTART|USAGE)(?:\.[^/]+)?(?::\d+)?$/i.test(filePath);
+}
+
+/**
  * Signals that the surrounding paragraph is AI-directed rather than human-
  * directed onboarding prose. "Run this", "execute the following", "tell the
  * agent" — yes. "Add it to your shell profile" — no.
@@ -101,6 +127,24 @@ export function detect(
         if (!AI_DIRECTED_SIGNALS.test(windowText)) {
           continue;
         }
+      }
+
+      // Inside a fenced bash code block, a `#` comment is documentation
+      // for the human running the snippet — e.g. `# Set your API keys
+      // (add to ~/.bashrc or ~/.zshrc for persistence)`. Real agent-
+      // directed tool-abuse instructions are imperative prose, not bash
+      // comments. README/INSTALL/SETUP files in particular reach for this
+      // pattern routinely. We only suppress `tool-abuse-pattern` here;
+      // explicit `dotfile-modification`/`system-write`/`ssh-write` extras
+      // describe a specific dangerous action and remain critical regardless.
+      if (
+        isMarkdown &&
+        technique === 'tool-abuse-pattern' &&
+        isHumanOnboardingDoc(filePath) &&
+        isInsideCodeFence(content, match.index) &&
+        isOnBashCommentLine(content, match.index)
+      ) {
+        continue;
       }
 
       // Tool abuse is always critical

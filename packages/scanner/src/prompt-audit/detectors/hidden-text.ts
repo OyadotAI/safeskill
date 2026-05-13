@@ -30,6 +30,34 @@ const VARIATION_SELECTOR_RE = /[\uFE00-\uFE0D\u{E0100}-\u{E01EF}]+/gu;
 const HOMOGLYPH_WORD_RE = /(?:[a-z]+[\u0400-\u04FF\u0370-\u03FF\u0250-\u02AF\u1D00-\u1D7F\u1E00-\u1EFF\uFF00-\uFFEF][a-z]*|[a-z]*[\u0400-\u04FF\u0370-\u03FF\u0250-\u02AF\u1D00-\u1D7F\u1E00-\u1EFF\uFF00-\uFFEF][a-z]+)/gi;
 
 /**
+ * Benign non-ASCII letters commonly used in legitimate technical writing
+ * adjacent to ASCII (e.g. "\u00B5s" for microseconds, "\u00C5" for angstrom). The
+ * case-insensitive homoglyph regex unintentionally matches these because
+ * Unicode case folding maps them into the Greek/Latin ranges
+ * (e.g. U+00B5 MICRO SIGN folds to U+039C). A match whose only non-ASCII
+ * characters are in this set is not a homoglyph attack.
+ */
+const BENIGN_TECHNICAL_LETTERS = new Set<number>([
+  0x00b5, // MICRO SIGN \u2014 SI prefix in "\u00B5s", "\u00B5F", "\u00B5m", "\u00B5A"
+  0x00c5, 0x00e5, // \u00C5 \u00E5 \u2014 Angstrom, Scandinavian text
+  0x212b, // ANGSTROM SIGN
+  0x00df, // \u00DF \u2014 German sharp s
+  0x00c6, 0x00e6, // \u00C6 \u00E6
+  0x00d8, 0x00f8, // \u00D8 \u00F8
+]);
+
+function isBenignTechnicalWord(matchText: string): boolean {
+  let hasNonAscii = false;
+  for (const ch of matchText) {
+    const cp = ch.codePointAt(0)!;
+    if (cp <= 127) continue;
+    hasNonAscii = true;
+    if (!BENIGN_TECHNICAL_LETTERS.has(cp)) return false;
+  }
+  return hasNonAscii;
+}
+
+/**
  * HTML comments in markdown.
  */
 const HTML_COMMENT_RE = /<!--([\s\S]*?)-->/g;
@@ -191,6 +219,13 @@ export function detect(
 
       // Skip known benign metadata comments entirely (MCP registry, linter directives, etc.)
       if (technique === 'html-comment' && isBenignMetadataComment(match[1] ?? '')) {
+        continue;
+      }
+
+      // Skip homoglyph matches whose only non-ASCII letters are SI/scientific
+      // symbols (µs, Å, °C precursors). Case-insensitive matching folds U+00B5
+      // into the Greek range, producing false positives on legitimate units.
+      if (technique === 'homoglyph' && isBenignTechnicalWord(match[0])) {
         continue;
       }
 

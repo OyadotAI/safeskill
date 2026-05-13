@@ -38,6 +38,38 @@ function snippet(content: string, index: number, length: number): string {
   return raw.replace(/\n/g, '\\n');
 }
 
+/**
+ * Detect whether the match at `index` looks like a structured-data key
+ * (`User:`, `system:`, `Human:`) rather than a chat-turn marker. In a
+ * YAML/JSON document the line that contains the match is composed of
+ * indentation, an identifier-shaped token, a colon, and optionally a
+ * value — never the imperative prose that real prompt-injection turn
+ * markers sit in. Used to suppress false positives on OpenAPI schema
+ * names (`User:`, `Assistant:`) and config keys (`system:`).
+ */
+function isYamlOrJsonFile(filePath: string): boolean {
+  return /\.(?:ya?ml|json|jsonc|json5|toml)(?::\d+)?$/i.test(filePath);
+}
+
+function looksLikeStructuredDataKey(content: string, matchIndex: number, matchText: string): boolean {
+  // The fake-turn-marker regexes include the preceding newline (e.g.
+  // `\n\s*User\s*:`). Advance past leading whitespace/newlines in the match
+  // so the line lookup lands on the line that actually contains the key.
+  const leadingWs = /^\s*/.exec(matchText)?.[0].length ?? 0;
+  const keyIndex = matchIndex + leadingWs;
+  const lineStart = content.lastIndexOf('\n', keyIndex - 1) + 1;
+  const lineEnd = content.indexOf('\n', keyIndex);
+  const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+  // Pure structured-data key shape: `^[\s-]*<Identifier>\s*:\s*<value-or-empty>$`
+  // `-` covers YAML list items like `- User:`. We accept either
+  //   `  User:` (empty value, child object follows)
+  //   `  User: scalar-value`
+  //   `  User: # trailing comment`
+  // and reject prose-shaped lines (sentence breaks, multi-word values mid-line).
+  const keyShape = /^[\s-]*[A-Za-z_][A-Za-z0-9_-]*\s*:\s*(?:#.*)?$|^[\s-]*[A-Za-z_][A-Za-z0-9_-]*\s*:\s+\S.*$/;
+  return keyShape.test(line) && !/[.!?]\s+[A-Z]/.test(line);
+}
+
 export function detect(
   content: string,
   filePath: string,
@@ -53,6 +85,8 @@ export function detect(
     ...EXTRA_PATTERNS,
   ];
 
+  const structuredFile = isYamlOrJsonFile(filePath);
+
   for (const { regex, technique } of allPatterns) {
     const globalRe = new RegExp(
       regex.source,
@@ -61,6 +95,18 @@ export function detect(
     let match: RegExpExecArray | null;
 
     while ((match = globalRe.exec(content)) !== null) {
+      // In YAML/JSON documents, `User:`, `Human:`, `Assistant:` are usually
+      // schema keys (OpenAPI components, conversation-log structures), not
+      // chat-turn markers. Same for ChatML-style bracket tags appearing as
+      // YAML strings. Skip when the match's line has structured-data shape.
+      if (
+        structuredFile &&
+        (technique === 'fake-turn-marker' || technique === 'chatml-marker') &&
+        looksLikeStructuredDataKey(content, match.index, match[0])
+      ) {
+        continue;
+      }
+
       const { line, column } = lineColFromIndex(content, match.index);
 
       // Delimiter escapes are clearly intentional manipulation

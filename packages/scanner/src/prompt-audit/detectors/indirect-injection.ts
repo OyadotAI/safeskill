@@ -54,6 +54,47 @@ function snippet(content: string, index: number, length: number): string {
 }
 
 /**
+ * Detect whether the URL match at `index` is the value of a `url=`/`uri=`
+ * query parameter on a shields.io endpoint-badge URL. Shields renders the
+ * JSON body as badge label/colour text inside an <img>, so the inner URL
+ * is consumed as data by a badge proxy, not loaded as page content.
+ */
+const SHIELDS_BADGE_HOSTS = ['img.shields.io', 'shields.io'];
+function isShieldsBadgeEndpoint(content: string, index: number): boolean {
+  // Look back a bounded distance for `?url=` or `&url=` (or uri=) preceded
+  // by a shields.io host. 256 chars covers any realistic badge URL.
+  const lookbackStart = Math.max(0, index - 256);
+  const before = content.slice(lookbackStart, index).toLowerCase();
+  if (!/[?&](?:url|uri)=$/.test(before)) return false;
+  return SHIELDS_BADGE_HOSTS.some((h) => before.includes(h));
+}
+
+/**
+ * Static image / icon assets cannot inject instructions into a model — they
+ * are rendered as binary pixels, not consumed as text. A raw URL that ends
+ * in an image extension is a logo or screenshot, not a content payload.
+ */
+const STATIC_ASSET_EXT_RE = /\.(?:svg|png|jpe?g|gif|webp|avif|bmp|ico|tiff?|woff2?|ttf|otf|eot|mp4|webm|mov|mp3|ogg|wav)(?:[?#].*)?$/i;
+
+/**
+ * Detect raw-content URLs that appear inside a markdown image (`![alt](url)`)
+ * or HTML `<img src="url">` / `<picture><source srcset="url">`. The
+ * surrounding tag forces image rendering, so the content cannot be
+ * interpreted as text instructions.
+ */
+function isInsideImageContext(content: string, index: number): boolean {
+  // Look back for a markdown image opener `](` preceded by `![...]` or
+  // an HTML <img src=/<source srcset= on the same line.
+  const lookbackStart = Math.max(0, index - 200);
+  const before = content.slice(lookbackStart, index);
+  // Markdown image: `![alt-text](URL...`
+  if (/!\[[^\]]*\]\([^)]*$/.test(before)) return true;
+  // HTML img/source on the same logical span
+  if (/<(?:img|source)\b[^>]*?(?:src|srcset)\s*=\s*["']?[^"'>]*$/i.test(before)) return true;
+  return false;
+}
+
+/**
  * Check if a link's display text is significantly different from where it actually points.
  * For example, display text says "documentation" but URL goes to pastebin.
  */
@@ -108,6 +149,24 @@ export function detect(
     let match: RegExpExecArray | null;
 
     while ((match = globalRe.exec(content)) !== null) {
+      // Skip raw-content URLs that are passed as a query parameter to a
+      // known badge proxy (shields.io endpoint badges). The badge service
+      // renders the JSON as label text in an <img>, not as page content,
+      // so it cannot inject instructions into a model.
+      if (technique === 'raw-content-url' && isShieldsBadgeEndpoint(content, match.index)) {
+        continue;
+      }
+      // Skip raw URLs pointing to static image / font / media assets.
+      // These render as binary content, not as text the model would read.
+      if (technique === 'raw-content-url' && STATIC_ASSET_EXT_RE.test(match[0])) {
+        continue;
+      }
+      // Skip raw URLs that sit inside a markdown image or <img>/<source>
+      // tag — the URL is consumed as an image source, never as instructions.
+      if (technique === 'raw-content-url' && isInsideImageContext(content, match.index)) {
+        continue;
+      }
+
       const { line, column } = lineColFromIndex(content, match.index);
 
       const severity = isPriority ? 'high' : 'medium';

@@ -10,7 +10,6 @@ const EXTRA_PATTERNS: Array<{ regex: RegExp; technique: string }> = [
   { regex: /\bDAN\s+mode\b/i, technique: 'dan-jailbreak' },
   { regex: /developer\s+mode\s+(enabled|activated|on)/i, technique: 'developer-mode-jailbreak' },
   { regex: /unlock\s+(all|your|unrestricted)\s+(capabilities|restrictions|limits)/i, technique: 'unlock-attempt' },
-  { regex: /unlock\s+.{0,20}?(capabilities|restrictions)/i, technique: 'unlock-attempt' },
   { regex: /remove\s+(all\s+)?(safety|content)\s+(filters?|restrictions?)/i, technique: 'filter-removal' },
   { regex: /you\s+have\s+no\s+(restrictions?|limits?|filters?|boundaries)/i, technique: 'restriction-removal' },
   { regex: /in\s+(this|the)\s+(?:conversation|session),?\s+you\s+(?:can|will|must)\s+(?:do\s+)?anything/i, technique: 'unrestricted-mode' },

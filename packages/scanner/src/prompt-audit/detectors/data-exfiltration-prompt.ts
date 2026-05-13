@@ -14,8 +14,11 @@ const EXTRA_PATTERNS: Array<{ regex: RegExp; technique: string }> = [
   },
   // Compress/encode before exfil
   { regex: /(?:compress|zip|tar|gzip|encode)\s+.{1,60}?\s+(?:and|then)\s+(?:send|upload|post)/i, technique: 'encode-exfil' },
-  // Base64 wrapping in imperative context
-  { regex: /base64\s+encode/i, technique: 'encoding-request' },
+  // Base64 wrapping in imperative context. The `\b` after `encode` rejects
+  // the participle form ("base64 encoded binary data" in OpenAPI/protobuf
+  // descriptions) while keeping the imperative form ("base64 encode the
+  // token before posting").
+  { regex: /base64\s+encode\b/i, technique: 'encoding-request' },
   // Direct credential mention + exfil action (must include a destination)
   { regex: /(?:send|post|upload|transmit|forward|exfiltrate)\s+(?:the\s+)?(?:api[_\s-]?key|token|password|secret|credential)s?\s+(?:to|via)\s+/i, technique: 'credential-exfil' },
   { regex: /(?:api[_\s-]?key|token|password|secret|credential)s?\s+.{0,20}?(?:send|post|upload|transmit|forward)\s+(?:to|via)\s+https?:\/\//i, technique: 'credential-exfil' },
