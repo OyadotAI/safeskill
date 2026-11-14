@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at the maintainers
-of this repository (see [Oya.ai](https://oya.ai) for project contact points).
+of this repository (see [Oya](https://getoya.ai) for project contact points).
 
 All complaints will be reviewed and investigated promptly and fairly.
 

@@ -18,7 +18,7 @@ Preferred options:
    the repo.
 2. **Maintainers** — If GitHub reporting is not available, contact the project
    maintainers through a private channel (for example the organization behind
-   [Oya.ai](https://oya.ai) / [safeskill.dev](https://safeskill.dev)).
+   [Oya](https://getoya.ai) / [safeskill.dev](https://safeskill.dev)).
 
 Include as much detail as you can safely share: affected component, steps to
 reproduce, impact, and any suggested fix or patch.

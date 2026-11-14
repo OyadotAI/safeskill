@@ -267,5 +267,5 @@ MIT
 ---
 
 <p align="center">
-  Built by <a href="https://oya.ai"><strong>Oya.ai</strong></a> — AI Employees Builder
+  Built by <a href="https://getoya.ai"><strong>Oya</strong></a> — AI Employees Builder
 </p>

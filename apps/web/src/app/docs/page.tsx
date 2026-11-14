@@ -375,8 +375,8 @@ scripts/
       <div className="mt-20 pt-8 border-t border-gray-800/50 text-center">
         <p className="text-gray-500 text-sm">
           Built by{' '}
-          <a href="https://oya.ai" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline font-medium">
-            Oya.ai
+          <a href="https://getoya.ai" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline font-medium">
+            Oya
           </a>
           {' '}&mdash; AI Employees Builder
         </p>

@@ -99,8 +99,8 @@ export function Footer() {
           </p>
           <p className="text-xs text-gray-600">
             Built by{' '}
-            <a href="https://oya.ai" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-emerald-400 transition-colors">
-              Oya.ai
+            <a href="https://getoya.ai" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-emerald-400 transition-colors">
+              Oya
             </a>
             {' '}&mdash; AI Employees Builder
           </p>

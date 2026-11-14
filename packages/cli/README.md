@@ -105,4 +105,4 @@ MIT
 
 ---
 
-Built by [Oya.ai](https://oya.ai) — AI Employees Builder
+Built by [Oya](https://getoya.ai) — AI Employees Builder

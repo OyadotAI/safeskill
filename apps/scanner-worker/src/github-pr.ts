@@ -196,7 +196,7 @@ function buildPRBody(slug: string, result: ScanResult): string {
   body += `please [open an issue](https://github.com/OyadotAI/safeskill/issues/new?title=False+positive+in+${encodeURIComponent(result.packageName)}&labels=false-positive) `;
   body += `and we will fix it immediately.\n\n`;
   body += `- [GitHub](https://github.com/OyadotAI/safeskill) | [Website](https://safeskill.dev) | [Docs](https://safeskill.dev/docs)\n`;
-  body += `- Built by [Oya.ai](https://oya.ai) -- AI Employees Builder\n`;
+  body += `- Built by [Oya](https://getoya.ai) -- AI Employees Builder\n`;
 
   return body;
 }
@@ -310,7 +310,7 @@ export async function createScanPR(
       {
         method: 'PUT',
         body: JSON.stringify({
-          message: `Add SafeSkill security badge (${result.overallScore}/100)\n\nSigned-off-by: SafeSkill Scanner <mk@oya.ai>`,
+          message: `Add SafeSkill security badge (${result.overallScore}/100)\n\nSigned-off-by: SafeSkill Scanner <mk@getoya.ai>`,
           content: Buffer.from(updatedContent).toString('base64'),
           branch: branchName,
           ...(readmeSha ? { sha: readmeSha } : {}),
